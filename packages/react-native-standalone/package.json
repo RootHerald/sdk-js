@@ -1,0 +1,72 @@
+{
+  "name": "@rootherald/react-native",
+  "version": "0.1.0",
+  "description": "React Native bindings for Root Herald device attestation. Bridges the native iOS RootHeraldKit and Android RootHeraldClient SDKs into a JS surface with idiomatic React hooks.",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "react-native": "./src/index.ts",
+  "source": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "react-native": "./src/index.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "ios",
+    "android",
+    "RootHeraldRN.podspec",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "react-native",
+    "rootherald",
+    "device-attestation",
+    "tpm",
+    "fraud-prevention"
+  ],
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-native": ">=0.72.0"
+  },
+  "devDependencies": {
+    "@testing-library/react-hooks": "^8.0.1",
+    "@testing-library/react-native": "^12.7.0",
+    "@types/jest": "^29.5.12",
+    "@types/react": "^18.3.0",
+    "@types/react-test-renderer": "^18.3.0",
+    "jest": "^29.7.0",
+    "react": "^18.3.0",
+    "react-native": "0.74.0",
+    "react-test-renderer": "^18.3.0",
+    "ts-jest": "^29.1.5",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "roots": ["<rootDir>/test"],
+    "testRegex": "test/.*\\.test\\.tsx?$",
+    "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json"],
+    "moduleNameMapper": {
+      "^react-native$": "<rootDir>/test/__mocks__/react-native.ts",
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

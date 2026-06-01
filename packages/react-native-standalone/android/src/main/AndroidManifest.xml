@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.rootherald.rn">
+    <!-- No additional permissions needed beyond what the host app declares.
+         The underlying RootHeraldClient relies on the AndroidKeyStore which
+         is universally available on API 26+. -->
+</manifest>
