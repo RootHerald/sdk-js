@@ -21,8 +21,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm -r typecheck
-
+      # Build first so workspace consumers (packages/js, etc.) can resolve
+      # @rootherald/contracts' generated .d.ts during typecheck.
       - run: pnpm -r build
+
+      - run: pnpm -r typecheck
 
       - run: pnpm -r test
