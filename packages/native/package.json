@@ -1,0 +1,30 @@
+{
+  "name": "@rootherald/native",
+  "version": "1.0.0-preview.1",
+  "description": "Node.js N-API binding to the Root Herald native embeddable SDK (RootHerald.dll on Windows).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "src", "binding.gyp", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:native": "node-gyp rebuild",
+    "prebuild": "echo \"prebuildify is opt-in; run npm run prebuildify after RootHerald.dll is built\"",
+    "prebuildify": "prebuildify --napi --strip",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"see proxy-reference for unit tests; native tests require TPM hardware\" "
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.0.0",
+    "node-gyp-build": "^4.8.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  },
+  "_gypfileNote": "gypfile is intentionally false here — the addon is built explicitly via `npm run build:native` after RootHerald.dll is produced by the C++ CMake build. End-user consumers get the prebuilt .node via node-gyp-build.",
+  "gypfile": false,
+  "os": ["win32"]
+}

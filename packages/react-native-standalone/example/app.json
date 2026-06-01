@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Root Herald RN Example",
+    "slug": "rootherald-rn-example",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0B0F0E"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "io.rootherald.example",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "io.rootherald.example",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0F0E"
+      }
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
