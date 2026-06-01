@@ -1,0 +1,41 @@
+name: Release
+
+# Triggered on tags like v0.1.0 — publishes ALL workspace packages whose
+# version matches the tag. For per-package versioning, use Changesets and
+# replace this workflow accordingly.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Required for npm provenance via OIDC (Sigstore-signed attestation)
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm -r build
+
+      # Trusted publishing — no NPM_TOKEN required. The npm CLI uses the
+      # GitHub Actions OIDC token to authenticate. Each package must have
+      # "publishConfig.access": "public" + a trusted publisher configured
+      # on the npm package page at npmjs.com.
+      - name: Publish to npm with provenance
+        run: pnpm -r publish --no-git-checks --provenance --access public
