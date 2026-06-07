@@ -1,6 +1,6 @@
 {
   "name": "@rootherald/contracts",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -26,5 +26,14 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RootHerald/sdk-js.git",
+    "directory": "packages/contracts"
+  },
+  "homepage": "https://github.com/RootHerald/sdk-js/tree/main/packages/contracts#readme",
+  "bugs": {
+    "url": "https://github.com/RootHerald/sdk-js/issues"
   }
 }
