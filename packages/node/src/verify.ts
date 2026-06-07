@@ -71,8 +71,9 @@ export async function verifyAttestationToken(
 
   // Required OIDC claims — jose has already accepted iss/aud/exp/nbf,
   // but the SDK's verdict shape assumes these others are present.
+  const claimsRecord = claims as unknown as Record<string, unknown>;
   for (const claim of ["acr", "amr", "auth_time", "sub", "exp"] as const) {
-    if ((claims as Record<string, unknown>)[claim] === undefined) {
+    if (claimsRecord[claim] === undefined) {
       throw new InvalidTokenError(`missing oidc claim: ${claim}`);
     }
   }
