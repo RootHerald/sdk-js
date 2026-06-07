@@ -1,6 +1,6 @@
 {
   "name": "@rootherald/node",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Node.js server SDK for  Root Herald \u00e2\u20ac\u201d JWT verify, CAEP receiver, SSF client",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -37,5 +37,14 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RootHerald/sdk-js.git",
+    "directory": "packages/node"
+  },
+  "homepage": "https://github.com/RootHerald/sdk-js/tree/main/packages/node#readme",
+  "bugs": {
+    "url": "https://github.com/RootHerald/sdk-js/issues"
   }
 }
