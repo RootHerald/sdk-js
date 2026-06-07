@@ -48,13 +48,24 @@ jobs:
       # casual `npm install @rootherald/node` keeps pulling stable releases.
       - name: Publish to npm with provenance
         run: |
+          # Determine dist-tag from semver: 'alpha'/'beta'/'rc' from the
+          # prerelease suffix, otherwise 'latest'.
           tag_ref="${GITHUB_REF_NAME#v}"
           if [[ "$tag_ref" == *-* ]]; then
-            prerelease_id="${tag_ref#*-}"
-            dist_tag="${prerelease_id%%.*}"
-            echo "Publishing under dist-tag: $dist_tag (from $GITHUB_REF_NAME)"
-            pnpm -r publish --no-git-checks --provenance --access public --tag "$dist_tag"
+            dist_tag="${tag_ref#*-}"
+            dist_tag="${dist_tag%%.*}"
           else
-            echo "Publishing under default dist-tag: latest"
-            pnpm -r publish --no-git-checks --provenance --access public
+            dist_tag="latest"
           fi
+          echo "Publishing under dist-tag: $dist_tag (from $GITHUB_REF_NAME)"
+          echo "npm version: $(npm --version)"
+
+          # Use npm publish directly (not pnpm) so OIDC env propagation is
+          # straightforward. Loop over each published-eligible package.
+          for pkg_dir in packages/*/; do
+            if [ -f "$pkg_dir/package.json" ] && \
+               ! grep -q '"private": *true' "$pkg_dir/package.json"; then
+              echo "===> publishing $pkg_dir"
+              (cd "$pkg_dir" && npm publish --provenance --access public --tag "$dist_tag")
+            fi
+          done
