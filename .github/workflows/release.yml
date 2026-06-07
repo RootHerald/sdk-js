@@ -46,6 +46,19 @@ jobs:
       # Pre-release tags (v0.1.0-alpha.1, v0.2.0-beta.3, etc.) ship under
       # the matching dist-tag (alpha / beta / rc) instead of `latest`, so
       # casual `npm install @rootherald/node` keeps pulling stable releases.
+      # Diagnostic: print the GITHUB_* env vars npm uses to decide which
+      # trusted publisher to match against. If npm publish still 404s,
+      # cross-check these values against the npm trusted publisher config.
+      - name: Show OIDC identity claims
+        run: |
+          echo "GITHUB_REPOSITORY:       $GITHUB_REPOSITORY"
+          echo "GITHUB_REPOSITORY_OWNER: $GITHUB_REPOSITORY_OWNER"
+          echo "GITHUB_WORKFLOW_REF:     $GITHUB_WORKFLOW_REF"
+          echo "GITHUB_REF:              $GITHUB_REF"
+          echo "GITHUB_REF_TYPE:         $GITHUB_REF_TYPE"
+          echo "GITHUB_REF_NAME:         $GITHUB_REF_NAME"
+          echo "GITHUB_EVENT_NAME:       $GITHUB_EVENT_NAME"
+
       - name: Publish to npm with provenance
         run: |
           # Determine dist-tag from semver: 'alpha'/'beta'/'rc' from the
