@@ -1,34 +1,32 @@
-export { verifyAttestationToken, mapClaimsToVerdict, _clearJwksCache } from './verify.js';
-export { requireAttestation } from './requireAttestation.js';
-export { receiveCaepEvent, _clearCaepJwksCache } from './receiveCaepEvent.js';
-export { createSsfClient } from './ssfClient.js';
-export { acrRank, acrMeets } from './acrRank.js';
+/**
+ * @rootherald/node — Node.js server SDK for RootHerald device attestation.
+ *
+ * The 80% API is one call:
+ *   import { verifyAttestationToken } from "@rootherald/node";
+ *   const verdict = await verifyAttestationToken(token, { issuer, audience });
+ *
+ * For Express-style apps, `requireAttestation` is the gating middleware.
+ */
 
-export type { VerifyOptions } from './verify.js';
-export type { RequireAttestationMiddlewareOptions } from './requireAttestation.js';
-export type { ReceiveCaepEventOptions, ParsedCaepEvent } from './receiveCaepEvent.js';
-export type { SsfClientOptions } from './ssfClient.js';
+export { verifyAttestationToken } from "./verify.js";
+export { requireAttestation } from "./requireAttestation.js";
+
+export {
+  InvalidTokenError,
+  RootHeraldError,
+  TokenExpiredError,
+} from "@rootherald/contracts";
 
 export type {
   AcrUrn,
   AmrValue,
+  AttestationType,
   AttestationVerdict,
   DeviceVerdict,
-  AssuranceLevel,
-  AttestationType,
-  AcrRequestOptions,
-  SsfClient,
-  SsfStream,
-} from '@rootherald/contracts';
-
-export {
-  RootHeraldError,
-  TokenExpiredError,
-  InvalidVerdictError,
-  InsufficientAssuranceError,
-  StaleAttestationError,
-  InsufficientAcrError,
-  AuthenticationTooOldError,
-  WebhookSignatureError,
-  SsfApiError,
-} from '@rootherald/contracts';
+  EarStatus,
+  Platform,
+  RequireAttestationMiddlewareOptions,
+  TrustworthinessVector,
+  Verdict,
+  VerifyOptions,
+} from "@rootherald/contracts";

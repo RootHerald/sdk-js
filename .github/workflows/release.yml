@@ -36,5 +36,19 @@ jobs:
       # GitHub Actions OIDC token to authenticate. Each package must have
       # "publishConfig.access": "public" + a trusted publisher configured
       # on the npm package page at npmjs.com.
+      #
+      # Pre-release tags (v0.1.0-alpha.1, v0.2.0-beta.3, etc.) ship under
+      # the matching dist-tag (alpha / beta / rc) instead of `latest`, so
+      # casual `npm install @rootherald/node` keeps pulling stable releases.
       - name: Publish to npm with provenance
-        run: pnpm -r publish --no-git-checks --provenance --access public
+        run: |
+          tag_ref="${GITHUB_REF_NAME#v}"
+          if [[ "$tag_ref" == *-* ]]; then
+            prerelease_id="${tag_ref#*-}"
+            dist_tag="${prerelease_id%%.*}"
+            echo "Publishing under dist-tag: $dist_tag (from $GITHUB_REF_NAME)"
+            pnpm -r publish --no-git-checks --provenance --access public --tag "$dist_tag"
+          else
+            echo "Publishing under default dist-tag: latest"
+            pnpm -r publish --no-git-checks --provenance --access public
+          fi
