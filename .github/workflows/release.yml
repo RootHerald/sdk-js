@@ -24,9 +24,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 24 ships with npm 11.x, which has built-in OIDC trusted-
+          # publisher support. Node 20's bundled npm 10.x is too old.
+          node-version: 24
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
+
+      # Belt-and-suspenders: explicitly install latest npm so OIDC support is
+      # guaranteed regardless of which minor Node 24 brings.
+      - run: npm install -g npm@latest
 
       - run: pnpm install --frozen-lockfile
 
