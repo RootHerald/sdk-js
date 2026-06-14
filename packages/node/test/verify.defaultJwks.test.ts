@@ -15,7 +15,6 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from "vitest";
-import { createLocalJWKSet } from "jose";
 import { getFixtures, type TestFixtures } from "./fixtures/jwks.js";
 
 const ISSUER = "https://default-jwks.rootherald.example.com";
@@ -52,9 +51,6 @@ beforeAll(async () => {
 
 describe("verifyAttestationToken — default jwksUri (no _jwks injection)", () => {
   it("derives ${issuer}/.well-known/jwks.json and verifies successfully", async () => {
-    // Sanity check the mock surface is the one the SDK will use.
-    expect(typeof createLocalJWKSet).toBe("function");
-
     const token = await fixtures.signToken({
       iss: ISSUER,
       aud: "my-client",
