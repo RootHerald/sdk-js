@@ -71,7 +71,7 @@ export interface VerifyOptions {
   clockTolerance?: number;
   /** JWKS cache TTL in milliseconds. Default: 3_600_000 (1 hour). */
   jwksCacheMs?: number;
-  /** Override the JWKS URL. Default: `${issuer}/api/v1/.well-known/jwks.json`. */
+  /** Override the JWKS URL. Default: `${issuer}/.well-known/jwks.json`. */
   jwksUri?: string;
 }
 
