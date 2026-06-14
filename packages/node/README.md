@@ -27,7 +27,7 @@ const verdict = await verifyAttestationToken(token, {
 });
 
 console.log(verdict.device.ueid);   // device UUID (the EAT `ueid`)
-console.log(verdict.earStatus);     // 'affirming' | 'warning' | ...  (via verdict.device.earStatus)
+console.log(verdict.device.earStatus);  // 'affirming' | 'warning' | ...
 console.log(verdict.acr);           // satisfied ACR URN
 console.log(verdict.device.quoteVerified); // boolean
 ```
