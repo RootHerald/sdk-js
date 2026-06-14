@@ -45,7 +45,7 @@ export async function verifyAttestationToken(
   options: VerifyOptions & { _jwks?: JWTVerifyGetKey },
 ): Promise<AttestationVerdict> {
   const jwksUri =
-    options.jwksUri ?? `${options.issuer}/api/v1/.well-known/jwks.json`;
+    options.jwksUri ?? `${options.issuer}/.well-known/jwks.json`;
   const jwks =
     options._jwks ?? getJwks(jwksUri, options.jwksCacheMs ?? 3_600_000);
 

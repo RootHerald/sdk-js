@@ -1,7 +1,7 @@
 {
   "name": "@rootherald/node",
   "version": "0.1.0-alpha.6",
-  "description": "Node.js server SDK for  Root Herald \u00e2\u20ac\u201d JWT verify, CAEP receiver, SSF client",
+  "description": "Node.js server SDK for Root Herald \u2014 verify device-attestation JWTs and gate requests with attestation middleware",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
