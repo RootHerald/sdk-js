@@ -1,6 +1,6 @@
 {
   "name": "@rootherald/node",
-  "version": "0.1.0-alpha.6",
+  "version": "0.1.0-alpha.7",
   "description": "Node.js server SDK for Root Herald \u2014 verify device-attestation JWTs and gate requests with attestation middleware",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -17,7 +17,8 @@
   "files": [
     "dist",
     "src",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
