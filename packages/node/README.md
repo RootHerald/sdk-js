@@ -123,6 +123,21 @@ app.post(
 On insufficient ACR or stale `auth_time` the middleware responds `401` with an
 RFC 9470 `WWW-Authenticate` step-up challenge.
 
+### ACR tracks: device vs. user (security)
+
+`acrValues` is evaluated over **two separate tracks** — a device track
+(`device:any` < `device:high`) and a user track (`user:1fa` < `user:2fa` <
+`user:phr` < `user:phrh` < `user:phrh:fresh`). The tracks do **not** cross: a
+user-track token never satisfies a `device:*` requirement, and a device-track
+token never satisfies a `user:*` requirement. A `device:high` requirement is
+additionally satisfied only when the verdict carries the device evidence
+(`quoteVerified && secureBootVerified && eventLogVerified`).
+
+> **Breaking behavior change in 0.1.0-alpha.7 (security fix).** Earlier versions
+> used a single flattened ACR ladder, so a user-track token (e.g. `user:1fa`)
+> could wrongly pass a `device:*` gate. Such tokens are now correctly rejected.
+> See `CHANGELOG.md`.
+
 ## Roadmap (not yet shipped)
 
 CAEP webhook receivers and an SSF stream-management client are planned but
