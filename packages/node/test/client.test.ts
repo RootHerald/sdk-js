@@ -157,6 +157,49 @@ describe("attest", () => {
     // @ts-expect-error intentionally omitting challengeId
     await expect(rh.attest({ blob: 1 }, {})).rejects.toThrow(RootHeraldError);
   });
+
+  it("defaults baseUrl to the canonical api.rootherald.io host", async () => {
+    const fetchMock = mockFetch(200, {
+      challengeId: "c",
+      nonce: "n",
+      expiresAt: "2026-01-01T00:00:00Z",
+    });
+    const rh = new RootHerald({ secretKey: SK, fetch: fetchMock });
+    await rh.createChallenge();
+
+    const [url] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://api.rootherald.io/api/v1/attestations/challenge");
+  });
+
+  it("passes cohort fields on verdict.device through verbatim", async () => {
+    const verdict = sampleVerdict();
+    verdict.device.cohortKey = "tpm20:win11:sb1:abc123";
+    verdict.device.cohortScope = "tenant-fleet";
+    verdict.device.cohortPrevalence = 0.042;
+    verdict.device.cohortPrevalencePerPcr = { "0": 0.9, "7": 0.5 };
+    verdict.device.cohortSampleSize = 1287;
+    verdict.device.novelProfile = false;
+    const fetchMock = mockFetch(200, { verdict });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.attest({ blob: 1 }, { challengeId: "chal-1" });
+    expect(out.device.cohortKey).toBe("tpm20:win11:sb1:abc123");
+    expect(out.device.cohortScope).toBe("tenant-fleet");
+    expect(out.device.cohortPrevalence).toBe(0.042);
+    expect(out.device.cohortPrevalencePerPcr).toEqual({ "0": 0.9, "7": 0.5 });
+    expect(out.device.cohortSampleSize).toBe(1287);
+    expect(out.device.novelProfile).toBe(false);
+  });
+
+  it("leaves cohort fields absent when the server omits them", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.attest({ blob: 1 }, { challengeId: "chal-1" });
+    expect(out.device.cohortKey).toBeUndefined();
+    expect(out.device.cohortPrevalence).toBeUndefined();
+    expect(out.device.novelProfile).toBeUndefined();
+  });
 });
 
 describe("error mapping", () => {

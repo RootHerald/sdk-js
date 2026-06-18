@@ -39,6 +39,24 @@ export interface DeviceVerdict {
   platform?: Platform;
   hardwareModel?: string;
   trustworthinessVector?: TrustworthinessVector;
+  /**
+   * Cohort fields — how common this device's boot configuration is among
+   * devices like it. Populated by the Background-Check `/verify` response when
+   * a quote-bound event log was supplied; absent/null otherwise. ADDITIVE and
+   * advisory only — never a trust gate.
+   */
+  /** Opaque key identifying the cohort this device was bucketed into. */
+  cohortKey?: string;
+  /** Cohort comparison scope. */
+  cohortScope?: "global" | "tenant-fleet";
+  /** Fraction of the cohort sharing this device's profile, or null if unknown. */
+  cohortPrevalence?: number | null;
+  /** Per-PCR prevalence map (PCR index -> fraction). */
+  cohortPrevalencePerPcr?: Record<string, number>;
+  /** Number of devices in the cohort sample, or null if unknown. */
+  cohortSampleSize?: number | null;
+  /** Whether this is a previously-unseen profile, or null if not evaluated. */
+  novelProfile?: boolean | null;
 }
 
 /** Parsed attestation verdict from a verified RootHerald JWT. */
