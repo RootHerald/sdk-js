@@ -33,7 +33,7 @@ import {
 } from "@rootherald/contracts";
 
 /** Production RootHerald API base URL. */
-const DEFAULT_BASE_URL = "https://api.rootherald.com";
+const DEFAULT_BASE_URL = "https://api.rootherald.io";
 
 /** Secret keys are `rh_sk_`-prefixed; publishable keys (`rh_pk_`) must never be used here. */
 const SECRET_KEY_PREFIX = "rh_sk_";
