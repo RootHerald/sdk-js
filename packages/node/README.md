@@ -2,7 +2,19 @@
 
 Server-side SDK for Root Herald device attestation.
 
-The SDK is two functions:
+There are two integration paths:
+
+**Background-Check (server -> server).** Your dumb client collects an opaque
+evidence blob (no keys, no Root Herald contact) and hands it to your server;
+your server appraises it with the `RootHerald` client, authenticated by your
+`rh_sk_` secret key.
+
+- `new RootHerald({ secretKey })` — the server client.
+- `rh.createChallenge(opts?)` — mint a relay-friendly nonce.
+- `rh.attest(evidence, { challengeId })` — submit evidence, get an
+  `AttestationVerdict` (and an optional signed token).
+
+**Offline / badge tier.** Verify a Root Herald-issued attestation JWT yourself.
 
 - `verifyAttestationToken(token, options)` — verify a Root Herald attestation
   JWT and get back a typed `AttestationVerdict`.
@@ -15,6 +27,48 @@ The SDK is two functions:
 ```
 pnpm add @rootherald/node
 ```
+
+## Background-Check: appraise a device server-side
+
+```ts
+import { RootHerald } from '@rootherald/node';
+
+const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
+
+// 1. Mint a nonce and relay it to your client.
+const { challengeId, nonce, expiresAt } = await rh.createChallenge();
+
+// 2. Your client quotes over `nonce` and returns an opaque `evidence` blob to
+//    your server. Submit it for appraisal.
+const verdict = await rh.attest(evidence, {
+  challengeId,
+  policy: 'rootherald:builtin:default', // caller-named policy; fail-closed
+  returnToken: true,                    // opt-in signed EAT (default false)
+});
+
+if (verdict.device.verdict === 'pass') {
+  // verdict is the same AttestationVerdict shape as the offline path.
+  // verdict.token (when returnToken:true) is verifiable with verifyAttestationToken.
+}
+```
+
+`secretKey` is **required** and must be a secret key (`rh_sk_…`) — a publishable
+key (`rh_pk_…`) is rejected. `baseUrl` defaults to the production Root Herald
+API. An un-enrolled or failing device is **not** an error: it comes back as a
+normal verdict with a `fail`/`warn` result. Protocol/auth/quota problems raise a
+typed `RootHeraldApiError`:
+
+| Status | Error class             |
+| ------ | ----------------------- |
+| 401    | `InvalidSecretKeyError` |
+| 422    | `UnknownPolicyError`    |
+| 409    | `ChallengeError`        |
+| 400    | `InvalidEvidenceError`  |
+| 429    | `QuotaExceededError`    |
+
+All extend `RootHeraldApiError` (which carries `.status` and the server's
+`.errorCode`), which extends `RootHeraldError`. Network calls use the built-in
+`fetch` (Node 18+).
 
 ## Verify a token
 
@@ -141,5 +195,5 @@ additionally satisfied only when the verdict carries the device evidence
 ## Roadmap (not yet shipped)
 
 CAEP webhook receivers and an SSF stream-management client are planned but
-**not part of this release**. The only exports today are
-`verifyAttestationToken` and `requireAttestation`.
+**not part of this release**. Today's exports are the `RootHerald` server
+client, `verifyAttestationToken`, and `requireAttestation`.

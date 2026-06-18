@@ -27,8 +27,22 @@ export type {
   VerifyOptions,
 } from "./sdk-api.js";
 
+export type {
+  ChallengeRequest,
+  ChallengeResponse,
+  EvidenceBlob,
+  VerifyAttestationRequest,
+  VerifyAttestationResponse,
+} from "./background-check.js";
+
 export {
+  ChallengeError,
+  InvalidEvidenceError,
+  InvalidSecretKeyError,
   InvalidTokenError,
+  QuotaExceededError,
+  RootHeraldApiError,
   RootHeraldError,
   TokenExpiredError,
+  UnknownPolicyError,
 } from "./errors.js";
