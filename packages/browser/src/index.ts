@@ -11,6 +11,13 @@
 
 export { collectEvidence, type CollectOptions } from './collect.js';
 export {
+  enrollCollect,
+  enrollActivate,
+  type EnrollOptions,
+  type EnrollRequest,
+  type ActivateRequest,
+} from './enroll.js';
+export {
   getClientStatus,
   detectOs,
   detectBrowser,
@@ -43,6 +50,8 @@ export {
   ACTION_PING,
   ACTION_COLLECT,
   ACTION_STATUS,
+  ACTION_ENROLL_COLLECT,
+  ACTION_ENROLL_ACTIVATE,
   type RootHeraldRequestMessage,
   type RootHeraldResponseMessage,
 } from './constants.js';
