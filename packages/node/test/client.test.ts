@@ -191,6 +191,62 @@ describe("attest", () => {
     expect(out.device.novelProfile).toBe(false);
   });
 
+  it("parses ISO-8601 string dates from the REAL response shape into Date objects (F-09)", async () => {
+    // The server serializes .NET DateTimeOffset as ISO-8601 STRINGS, not JS
+    // Date objects. Build the wire shape exactly as it arrives over HTTP so a
+    // naive `as Date` cast would leave strings that throw on `.getTime()`.
+    const wireVerdict = {
+      acr: "urn:rootherald:device:high",
+      amr: ["hwk"],
+      authTime: "2026-06-28T12:00:00Z",
+      expiresAt: "2026-06-28T12:05:00Z",
+      userId: "user-1",
+      requestedAcrValues: [],
+      device: {
+        ueid: "device-uuid-1234",
+        earStatus: "affirming",
+        verdict: "pass",
+        attestationType: "tpm20",
+        attestedAt: "2026-06-28T11:59:30Z",
+        quoteVerified: true,
+        secureBootVerified: true,
+      },
+      raw: {},
+    };
+    const fetchMock = mockFetch(200, { verdict: wireVerdict });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.attest({ blob: 1 }, { challengeId: "chal-1" });
+
+    // No throw, and the date fields are real Dates with the expected values.
+    expect(out.authTime).toBeInstanceOf(Date);
+    expect(out.expiresAt).toBeInstanceOf(Date);
+    expect(out.device.attestedAt).toBeInstanceOf(Date);
+    // Calling .getTime() must NOT throw (the exact F-09 crash) and be correct.
+    expect(() => out.authTime.getTime()).not.toThrow();
+    expect(out.authTime.getTime()).toBe(Date.parse("2026-06-28T12:00:00Z"));
+    expect(out.expiresAt.getTime()).toBe(Date.parse("2026-06-28T12:05:00Z"));
+    expect(out.device.attestedAt.getTime()).toBe(
+      Date.parse("2026-06-28T11:59:30Z"),
+    );
+  });
+
+  it("accepts epoch-number dates and existing Date objects too (F-09 robustness)", async () => {
+    const epochMs = Date.UTC(2026, 5, 28, 12, 0, 0);
+    const wireVerdict = {
+      ...JSON.parse(JSON.stringify(sampleVerdict())),
+      authTime: epochMs, // number (epoch ms)
+      expiresAt: new Date(epochMs).toISOString(), // ISO string
+    };
+    const fetchMock = mockFetch(200, { verdict: wireVerdict });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.attest({ blob: 1 }, { challengeId: "chal-1" });
+    expect(out.authTime).toBeInstanceOf(Date);
+    expect(out.authTime.getTime()).toBe(epochMs);
+    expect(out.expiresAt.getTime()).toBe(epochMs);
+  });
+
   it("leaves cohort fields absent when the server omits them", async () => {
     const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
     const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });

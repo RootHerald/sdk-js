@@ -22,15 +22,15 @@ import type {
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "@rootherald/contracts";
+import { RootHeraldError } from "@rootherald/contracts";
 import {
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
   QuotaExceededError,
   RootHeraldApiError,
-  RootHeraldError,
   UnknownPolicyError,
-} from "@rootherald/contracts";
+} from "@rootherald/contracts/server";
 
 /** Production RootHerald API base URL. */
 const DEFAULT_BASE_URL = "https://api.rootherald.io";
@@ -191,7 +191,7 @@ export class RootHerald {
         200,
       );
     }
-    const result = data.verdict as AttestResult;
+    const result = normalizeVerdictDates(data.verdict as AttestResult);
     if (typeof data.token === "string") result.token = data.token;
     return result;
   }
@@ -231,6 +231,42 @@ export class RootHerald {
       );
     }
   }
+}
+
+/**
+ * Robustly coerce a server-supplied timestamp into a `Date`.
+ *
+ * The RootHerald API serializes .NET `DateTimeOffset` values as ISO-8601
+ * STRINGS (e.g. `"2026-06-28T12:34:56Z"`), not as JS `Date` objects or epoch
+ * numbers. A naive `value as Date` cast leaves a string at runtime, so any
+ * consumer calling `.getTime()` on `verdict.expiresAt` throws
+ * `getTime is not a function`. This accepts a string (ISO-8601), a number
+ * (epoch milliseconds), or an existing `Date`, and always returns a `Date`.
+ * Epoch SECONDS from the JWT path are handled in verify.ts (`* 1000`); the
+ * JSON body uses ISO strings, which `new Date(string)` parses directly.
+ */
+function toDate(value: unknown): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") {
+    return new Date(value);
+  }
+  // Undefined/null/object: produce an Invalid Date rather than throwing, so a
+  // malformed timestamp degrades gracefully instead of crashing `attest()`.
+  return new Date(NaN);
+}
+
+/**
+ * Normalize the date-typed fields on a verdict parsed from the JSON `/verify`
+ * response. The API sends these as ISO-8601 strings; the SDK's typed surface
+ * promises `Date` objects, so we convert in place.
+ */
+function normalizeVerdictDates(result: AttestResult): AttestResult {
+  result.authTime = toDate(result.authTime as unknown);
+  result.expiresAt = toDate(result.expiresAt as unknown);
+  if (result.device) {
+    result.device.attestedAt = toDate(result.device.attestedAt as unknown);
+  }
+  return result;
 }
 
 /** Parses an error response body, unknown-safely, and returns its `error`/`message`. */

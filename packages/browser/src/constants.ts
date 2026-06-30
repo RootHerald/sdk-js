@@ -30,17 +30,16 @@ export const ACTION_COLLECT = 'collect' as const;
 /** Action: local device readiness (drives a native-host round-trip, no network). */
 export const ACTION_STATUS = 'status' as const;
 /**
- * Action: round 1 of first-time device enrollment. Drives a native-host
- * round-trip (no network) and returns the `enrollRequest` body the page relays
- * to the customer proxy's POST /api/v1/devices/enroll.
+ * Action: first-time device enrollment. Drives the native host's single
+ * elevated-TBS enroll (one "Establish hardware key" UAC) device↔RootHerald, and
+ * returns the enrolled `deviceId`. The whole ceremony — create AK,
+ * TPM2_ActivateCredential, evict to a persistent handle — happens in the host;
+ * the page never relays TPM blobs. (Replaced the PCP-only `enroll-collect` /
+ * `enroll-activate` page-relay split once raw-TBS activation was proven under
+ * elevation.) `serverUrl` is the RootHerald endpoint the host enrolls against
+ * (optional; the host falls back to its configured default).
  */
-export const ACTION_ENROLL_COLLECT = 'enroll-collect' as const;
-/**
- * Action: round 2 of first-time device enrollment. Given the server's
- * MakeCredential `challenge`, drives a keyless native-host activate and returns
- * the `activateRequest` body the page relays to POST /api/v1/devices/activate.
- */
-export const ACTION_ENROLL_ACTIVATE = 'enroll-activate' as const;
+export const ACTION_ENROLL = 'enroll' as const;
 
 /** A request envelope the page posts via `window.postMessage`. */
 export interface RootHeraldRequestMessage {
@@ -50,12 +49,11 @@ export interface RootHeraldRequestMessage {
     | typeof ACTION_PING
     | typeof ACTION_COLLECT
     | typeof ACTION_STATUS
-    | typeof ACTION_ENROLL_COLLECT
-    | typeof ACTION_ENROLL_ACTIVATE;
+    | typeof ACTION_ENROLL;
   nonce?: string;
   challengeId?: string;
-  /** MakeCredential blob from /enroll, forwarded verbatim on `enroll-activate`. */
-  challenge?: unknown;
+  /** RootHerald endpoint for the `enroll` action's device↔RootHerald round-trip. */
+  serverUrl?: string;
 }
 
 /** A response envelope the extension posts back via `window.postMessage`. */

@@ -4,8 +4,10 @@
  * Keyless and offline w.r.t. RootHerald: this posts a `collect` request to the
  * extension (which drives the native host to take a fresh TPM quote over the
  * server-issued `nonce`) and returns the opaque evidence blob. The PAGE hands
- * that blob to the CUSTOMER's server, which relays it to RootHerald with its
- * `rh_sk_` secret. No RootHerald network contact happens here.
+ * that blob to the CUSTOMER's server. The `rh_sk_` secret and the appraisal
+ * that turns the blob into a verdict live ONLY on that backend (a server SDK
+ * such as @rootherald/node) — never in this browser package. No `rh_sk_` secret
+ * and no RootHerald network contact ever touch the page.
  */
 
 import type { EvidenceBlob } from '@rootherald/contracts';

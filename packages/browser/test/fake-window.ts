@@ -21,14 +21,10 @@ export interface ExtensionBehavior {
   collectHangs?: boolean;
   /** If true, `status` never answers (simulates a hung host probe). */
   statusHangs?: boolean;
-  /** Blob returned on a successful `enroll-collect`. */
-  enrollRequest?: unknown;
-  /** Blob returned on a successful `enroll-activate`. */
-  activateRequest?: unknown;
-  /** If true, `enroll-collect` never answers (simulates a hung TPM op). */
-  enrollCollectHangs?: boolean;
-  /** If true, `enroll-activate` never answers (simulates a hung TPM op). */
-  enrollActivateHangs?: boolean;
+  /** deviceId returned on a successful `enroll`. */
+  deviceId?: string;
+  /** If true, `enroll` never answers (simulates a hung TPM op / UAC). */
+  enrollHangs?: boolean;
 }
 
 export class FakeWindow implements MessageWindow {
@@ -55,20 +51,20 @@ export class FakeWindow implements MessageWindow {
       requestId?: string;
       action?: string;
       challengeId?: string;
-      challenge?: unknown;
+      serverUrl?: string;
     };
     if (req?.type !== 'rootherald-request') return;
     queueMicrotask(() => this.respond(req));
   }
 
-  /** The `challenge` last seen on an `enroll-activate` request, for assertions. */
-  lastActivateChallenge: unknown;
+  /** The `serverUrl` last seen on an `enroll` request, for assertions. */
+  lastEnrollServerUrl: unknown;
 
   private respond(req: {
     requestId?: string;
     action?: string;
     challengeId?: string;
-    challenge?: unknown;
+    serverUrl?: string;
   }): void {
     const b = this.behavior;
     const requestId = req.requestId!;
@@ -128,8 +124,9 @@ export class FakeWindow implements MessageWindow {
       return;
     }
 
-    if (req.action === 'enroll-collect') {
-      if (b.enrollCollectHangs) return;
+    if (req.action === 'enroll') {
+      this.lastEnrollServerUrl = req.serverUrl;
+      if (b.enrollHangs) return;
       if (b.extensionPresent === false) return; // no relay at all
       if (b.hostPresent === false) {
         this.emit({
@@ -144,29 +141,7 @@ export class FakeWindow implements MessageWindow {
         type: 'rootherald-response',
         requestId,
         success: true,
-        data: { enrollRequest: b.enrollRequest ?? { ekPub: 'ek', akPub: 'ak' } },
-      });
-      return;
-    }
-
-    if (req.action === 'enroll-activate') {
-      this.lastActivateChallenge = req.challenge;
-      if (b.enrollActivateHangs) return;
-      if (b.extensionPresent === false) return; // no relay at all
-      if (b.hostPresent === false) {
-        this.emit({
-          type: 'rootherald-response',
-          requestId,
-          success: false,
-          error: b.hostError ?? 'Native host disconnected',
-        });
-        return;
-      }
-      this.emit({
-        type: 'rootherald-response',
-        requestId,
-        success: true,
-        data: { activateRequest: b.activateRequest ?? { secret: 'unsealed' } },
+        data: { deviceId: b.deviceId ?? 'device-1' },
       });
       return;
     }

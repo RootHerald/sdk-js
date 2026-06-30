@@ -13,7 +13,6 @@ import {
   type RootHeraldRequestMessage,
   type RootHeraldResponseMessage,
 } from './constants.js';
-import { TimeoutError } from './errors.js';
 
 /** Minimal window surface we depend on — keeps the SDK testable without a DOM. */
 export interface MessageWindow {
@@ -93,14 +92,4 @@ export function sendRequest(
     };
     win.postMessage(message, win.location.origin);
   });
-}
-
-/** Like {@link sendRequest} but throws {@link TimeoutError} instead of `null`. */
-export async function sendRequestOrThrow(
-  request: Omit<RootHeraldRequestMessage, 'type' | 'requestId'>,
-  opts: SendOptions,
-): Promise<RootHeraldResponseMessage> {
-  const res = await sendRequest(request, opts);
-  if (res === null) throw new TimeoutError();
-  return res;
 }

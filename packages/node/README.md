@@ -192,8 +192,8 @@ additionally satisfied only when the verdict carries the device evidence
 > could wrongly pass a `device:*` gate. Such tokens are now correctly rejected.
 > See `CHANGELOG.md`.
 
-## Roadmap (not yet shipped)
+## What this package exports
 
-CAEP webhook receivers and an SSF stream-management client are planned but
-**not part of this release**. Today's exports are the `RootHerald` server
-client, `verifyAttestationToken`, and `requireAttestation`.
+The public surface is the `RootHerald` server client (for the Background-Check
+flow), `verifyAttestationToken`, and `requireAttestation`. There is no webhook
+receiver in this package.

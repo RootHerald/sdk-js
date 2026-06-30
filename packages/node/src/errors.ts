@@ -1,13 +1,16 @@
-// Re-export the three SDK error classes for convenience. Consumers can also
-// import them directly from @rootherald/contracts.
+// Re-export the SDK error classes for convenience. Consumers can also import
+// them directly from @rootherald/contracts (server-context errors from the
+// @rootherald/contracts/server subpath).
+export {
+  InvalidTokenError,
+  RootHeraldError,
+  TokenExpiredError,
+} from "@rootherald/contracts";
 export {
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
-  InvalidTokenError,
   QuotaExceededError,
   RootHeraldApiError,
-  RootHeraldError,
-  TokenExpiredError,
   UnknownPolicyError,
-} from "@rootherald/contracts";
+} from "@rootherald/contracts/server";

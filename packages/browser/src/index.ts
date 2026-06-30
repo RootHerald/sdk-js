@@ -4,18 +4,22 @@
  * Brokers device-evidence collection through the RootHerald browser extension
  * (which drives the local native host) and exposes cold-start client detection
  * so a UI can guide a first-time visitor through installing the extension + the
- * native host. Keyless and offline w.r.t. RootHerald: the page hands the
- * evidence blob to the CUSTOMER's server, which relays it server->server with
- * its `rh_sk_` secret. The verdict comes from the server SDK, not here.
+ * native host.
+ *
+ * BOUNDARY: this package is KEYLESS. The `rh_sk_` secret and the act of
+ * verification live ONLY in the customer's BACKEND (a server SDK such as
+ * @rootherald/node) — never in this browser package and never in page code.
+ * Here the page only collects an opaque evidence blob and hands it to the
+ * customer's server, which relays it server->server to RootHerald with its
+ * `rh_sk_` secret and returns the verdict. No secret, no verdict, no RootHerald
+ * network call happens in the browser.
  */
 
 export { collectEvidence, type CollectOptions } from './collect.js';
 export {
-  enrollCollect,
-  enrollActivate,
+  enroll,
   type EnrollOptions,
-  type EnrollRequest,
-  type ActivateRequest,
+  type EnrollResult,
 } from './enroll.js';
 export {
   getClientStatus,
@@ -50,8 +54,7 @@ export {
   ACTION_PING,
   ACTION_COLLECT,
   ACTION_STATUS,
-  ACTION_ENROLL_COLLECT,
-  ACTION_ENROLL_ACTIVATE,
+  ACTION_ENROLL,
   type RootHeraldRequestMessage,
   type RootHeraldResponseMessage,
 } from './constants.js';

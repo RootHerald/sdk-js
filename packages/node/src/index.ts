@@ -27,16 +27,18 @@ export type {
 } from "./client.js";
 
 export {
+  InvalidTokenError,
+  RootHeraldError,
+  TokenExpiredError,
+} from "@rootherald/contracts";
+export {
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
-  InvalidTokenError,
   QuotaExceededError,
   RootHeraldApiError,
-  RootHeraldError,
-  TokenExpiredError,
   UnknownPolicyError,
-} from "@rootherald/contracts";
+} from "@rootherald/contracts/server";
 
 export type {
   AcrUrn,
