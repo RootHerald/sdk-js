@@ -15,9 +15,23 @@ import type {
 import { InvalidTokenError, RootHeraldError } from "@rootherald/contracts";
 import { verifyAttestationToken } from "./verify.js";
 
-const ACR_ORDER: readonly AcrUrn[] = [
+/**
+ * ACR satisfaction is evaluated over TWO SEPARATE ordered tracks, per the
+ * Root Herald ACR Value Registry (docs/architecture/contracts/acr-values.md,
+ * "Hierarchy and Subsumption"): the device-only track and the user track are
+ * distinct. A user-track ACR does NOT subsume a device-track requirement, and
+ * vice versa — "user:1fa does not subsume device:any; both device evidence and
+ * user auth are required independently."
+ *
+ * Within a track, higher tiers subsume lower ones (e.g. device:high satisfies a
+ * device:any requirement; user:phrh:fresh satisfies a user:1fa requirement).
+ */
+const DEVICE_TRACK: readonly AcrUrn[] = [
   "urn:rootherald:device:any",
   "urn:rootherald:device:high",
+];
+
+const USER_TRACK: readonly AcrUrn[] = [
   "urn:rootherald:user:1fa",
   "urn:rootherald:user:2fa",
   "urn:rootherald:user:phr",
@@ -25,8 +39,67 @@ const ACR_ORDER: readonly AcrUrn[] = [
   "urn:rootherald:user:phrh:fresh",
 ];
 
-function acrRank(urn: string): number {
-  return ACR_ORDER.indexOf(urn as AcrUrn);
+type Track = "device" | "user";
+
+function trackOf(urn: string): Track | null {
+  if (DEVICE_TRACK.includes(urn as AcrUrn)) return "device";
+  if (USER_TRACK.includes(urn as AcrUrn)) return "user";
+  return null;
+}
+
+function rankInTrack(urn: string, track: Track): number {
+  const order = track === "device" ? DEVICE_TRACK : USER_TRACK;
+  return order.indexOf(urn as AcrUrn);
+}
+
+/**
+ * Confirms the device-evidence booleans the registry requires for a given
+ * device-track URN are present and true on the verdict. The ACR string alone
+ * is never sufficient for device:high — the underlying evidence must be there.
+ *
+ * Per acr-values.md (device:high definition): requires
+ * `quote_verified && secure_boot_verified && event_log_verified`.
+ */
+function deviceEvidenceSatisfies(required: AcrUrn, verdict: AttestationVerdict): boolean {
+  const d = verdict.device;
+  switch (required) {
+    case "urn:rootherald:device:high":
+      return d.quoteVerified === true &&
+        d.secureBootVerified === true &&
+        d.eventLogVerified === true;
+    case "urn:rootherald:device:any":
+      // device:any requires a valid quote/platform attestation; the EAR status
+      // (affirming/warning) is the registry's gate for device:any.
+      return d.earStatus === "affirming" || d.earStatus === "warning";
+    default:
+      return false;
+  }
+}
+
+/**
+ * Returns true iff the token's `acr` satisfies a single required URN, evaluating
+ * strictly within the required URN's track and confirming device evidence for
+ * device-track requirements.
+ */
+function satisfiesRequirement(required: AcrUrn, verdict: AttestationVerdict): boolean {
+  const reqTrack = trackOf(required);
+  const presentTrack = trackOf(verdict.acr);
+  if (reqTrack === null || presentTrack === null) return false;
+
+  // Cross-track never satisfies: a user-track ACR must not satisfy a device
+  // requirement, and vice versa. This is the security-critical invariant.
+  if (reqTrack !== presentTrack) return false;
+
+  // Within-track laddering: the present tier must be >= the required tier.
+  const presentRank = rankInTrack(verdict.acr, reqTrack);
+  const requiredRank = rankInTrack(required, reqTrack);
+  if (presentRank < 0 || presentRank < requiredRank) return false;
+
+  // Device-track requirements additionally demand the evidence booleans.
+  if (reqTrack === "device") {
+    return deviceEvidenceSatisfies(required, verdict);
+  }
+  return true;
 }
 
 function defaultExtractor(req: IncomingMessage): string | null {
@@ -83,10 +156,16 @@ export function requireAttestation(
     }
 
     // ACR enforcement (RFC 9470 step-up).
+    //
+    // The requested list is a preference set: it is satisfied if the token
+    // satisfies AT LEAST ONE entry, evaluated within that entry's own track
+    // (device vs. user) with the registry's device-evidence checks. A
+    // user-track token can never satisfy a device-track requirement.
     if (options.acrValues?.length) {
-      const presentRank = acrRank(verdict.acr);
-      const requiredRank = Math.min(...options.acrValues.map(acrRank));
-      if (presentRank < 0 || presentRank < requiredRank) {
+      const satisfied = options.acrValues.some((required) =>
+        satisfiesRequirement(required, verdict),
+      );
+      if (!satisfied) {
         const err = new RootHeraldError(
           `acr ${verdict.acr} does not meet ${options.acrValues.join(", ")}`,
           "INSUFFICIENT_ACR",

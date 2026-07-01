@@ -1,7 +1,7 @@
 /**
  * OIDC discovery document fetching with fallback to hardcoded endpoints.
  *
- *  Root Herald may not always expose a discovery document. When the endpoint
+ * RootHerald may not always expose a discovery document. When the endpoint
  * returns 404 or the fetch fails, we fall back to the known RootHerald
  * endpoint conventions.
  */
