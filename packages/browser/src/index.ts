@@ -1,23 +1,34 @@
 /**
- * @rootherald/browser — the page-side RootHerald SDK.
+ * @rootherald/browser — the page-side RootHerald SDK (Client ABI 3.0).
  *
- * Brokers device-evidence collection through the RootHerald browser extension
- * (which drives the local native host) and exposes cold-start client detection
- * so a UI can guide a first-time visitor through installing the extension + the
- * native host.
+ * Orchestrates the KEYLESS client flow over the page <-> extension <-> native-host
+ * bridge and hands opaque blobs to the EMBEDDER. The three client verbs:
  *
- * BOUNDARY: this package is KEYLESS. The `rh_sk_` secret and the act of
- * verification live ONLY in the customer's BACKEND (a server SDK such as
- * @rootherald/node) — never in this browser package and never in page code.
- * Here the page only collects an opaque evidence blob and hands it to the
- * customer's server, which relays it server->server to RootHerald with its
- * `rh_sk_` secret and returns the verdict. No secret, no verdict, no RootHerald
- * network call happens in the browser.
+ *   - `enroll(relay)`  — one-time device-key bootstrap; the two network legs are
+ *                        relayed by the embedder's backend (see {@link enroll}).
+ *   - `attest(nonce)`  — per-attestation fresh TPM quote -> opaque evidence blob.
+ *   - PreCheck         — `getClientStatus` / detect helpers: local readiness
+ *                        SIGNALS, never a verdict.
+ *
+ * BOUNDARY: this package is KEYLESS. The browser holds NO RootHerald key
+ * (neither `rh_sk_` nor `rh_pk_`) and opens NO socket to RootHerald. Every action
+ * is a local TPM operation; opaque blobs cross the bridge and are relayed to/from
+ * RootHerald by the EMBEDDER's backend (a server SDK such as @rootherald/node,
+ * which holds `rh_sk_`). No secret, no verdict, no RootHerald network call ever
+ * happens in the browser.
  */
 
-export { collectEvidence, type CollectOptions } from './collect.js';
+export {
+  attest,
+  collectEvidence,
+  type AttestOptions,
+  type AttestWithRelayOptions,
+  type AttestRelay,
+  type CollectOptions,
+} from './collect.js';
 export {
   enroll,
+  type EnrollRelay,
   type EnrollOptions,
   type EnrollResult,
 } from './enroll.js';
@@ -54,11 +65,25 @@ export {
   ACTION_PING,
   ACTION_COLLECT,
   ACTION_STATUS,
-  ACTION_ENROLL,
+  ACTION_ENROLL_BEGIN,
+  ACTION_ENROLL_COMPLETE,
+  type RootHeraldAction,
   type RootHeraldRequestMessage,
   type RootHeraldResponseMessage,
 } from './constants.js';
 
-// Re-export verdict/evidence types from contracts for convenience: the browser
-// SDK only collects; the verdict is produced by the server SDK.
-export type { EvidenceBlob, AttestationVerdict, Verdict } from '@rootherald/contracts';
+// Re-export the contract blob shapes the browser orchestrates with, for embedder
+// convenience. These are the opaque blobs that cross the bridge / get relayed;
+// the browser never inspects a verdict — that lives only on the backend.
+export type {
+  EvidenceBlob,
+  EnrollRequestBlob,
+  EnrollActivationChallenge,
+  EnrollActivationResponse,
+} from '@rootherald/contracts';
+// The relay outcome shapes the embedder's backend (@rootherald/node) returns to
+// the `enroll(relay)` callbacks. Type-only; sourced from the server subpath.
+export type {
+  RelayEnrollResult,
+  RelayActivateResponse,
+} from '@rootherald/contracts/server';

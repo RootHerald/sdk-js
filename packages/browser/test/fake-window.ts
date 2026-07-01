@@ -1,17 +1,21 @@
 /**
  * A minimal fake `window` that simulates the RootHerald extension's content
  * script. Tests configure how it responds to each action, mirroring the real
- * postMessage wire (content-script.ts / service-worker.ts).
+ * Client ABI 3.0 postMessage wire (content-script.ts / service-worker.ts).
  */
 
 import type { MessageWindow } from '../src/transport.js';
+import type {
+  EnrollRequestBlob,
+  EnrollActivationResponse,
+} from '@rootherald/contracts';
 
 type Listener = (event: { data: unknown; source?: unknown }) => void;
 
 export interface ExtensionBehavior {
   /** If false, the extension never answers a `ping` (simulates no extension). */
   extensionPresent?: boolean;
-  /** If false, `status`/`collect` return a native-host failure. */
+  /** If false, `status`/`collect`/`enroll-*` return a native-host failure. */
   hostPresent?: boolean;
   /** Evidence blob returned on a successful `collect`. */
   evidence?: unknown;
@@ -21,16 +25,38 @@ export interface ExtensionBehavior {
   collectHangs?: boolean;
   /** If true, `status` never answers (simulates a hung host probe). */
   statusHangs?: boolean;
-  /** deviceId returned on a successful `enroll`. */
-  deviceId?: string;
-  /** If true, `enroll` never answers (simulates a hung TPM op / UAC). */
-  enrollHangs?: boolean;
+  /** Enroll request blob returned on a successful `enroll-begin`. */
+  enrollRequestBlob?: EnrollRequestBlob;
+  /** Activation blob returned on a successful `enroll-complete`. */
+  activationBlob?: EnrollActivationResponse;
+  /** If true, `enroll-begin` never answers (simulates a hung TPM op / UAC). */
+  enrollBeginHangs?: boolean;
+  /** If true, `enroll-complete` never answers. */
+  enrollCompleteHangs?: boolean;
+  /** If true, `enroll-begin` succeeds but omits the enrollRequestBlob. */
+  enrollBeginNoBlob?: boolean;
+  /** If true, `enroll-complete` succeeds but omits the activationBlob. */
+  enrollCompleteNoBlob?: boolean;
 }
+
+const DEFAULT_ENROLL_REQUEST: EnrollRequestBlob = {
+  ekPublicKey: 'ek-pub-b64',
+  akPublicArea: 'ak-pub-b64',
+  platform: 'windows',
+};
+
+const DEFAULT_ACTIVATION: EnrollActivationResponse = {
+  deviceId: 'device-1',
+  decryptedSecret: 'secret-b64',
+};
 
 export class FakeWindow implements MessageWindow {
   location = { origin: 'https://demo.rootherald.test' };
   private listeners = new Set<Listener>();
   behavior: ExtensionBehavior;
+
+  /** The `challenge` last seen on an `enroll-complete` request, for assertions. */
+  lastChallenge: unknown;
 
   constructor(behavior: ExtensionBehavior = {}) {
     this.behavior = behavior;
@@ -51,20 +77,26 @@ export class FakeWindow implements MessageWindow {
       requestId?: string;
       action?: string;
       challengeId?: string;
-      serverUrl?: string;
+      challenge?: unknown;
     };
     if (req?.type !== 'rootherald-request') return;
     queueMicrotask(() => this.respond(req));
   }
 
-  /** The `serverUrl` last seen on an `enroll` request, for assertions. */
-  lastEnrollServerUrl: unknown;
+  private hostFailure(requestId: string): void {
+    this.emit({
+      type: 'rootherald-response',
+      requestId,
+      success: false,
+      error: this.behavior.hostError ?? 'Native host disconnected',
+    });
+  }
 
   private respond(req: {
     requestId?: string;
     action?: string;
     challengeId?: string;
-    serverUrl?: string;
+    challenge?: unknown;
   }): void {
     const b = this.behavior;
     const requestId = req.requestId!;
@@ -82,15 +114,7 @@ export class FakeWindow implements MessageWindow {
 
     if (req.action === 'status') {
       if (b.statusHangs) return;
-      if (b.hostPresent === false) {
-        this.emit({
-          type: 'rootherald-response',
-          requestId,
-          success: false,
-          error: b.hostError ?? 'Native host disconnected',
-        });
-        return;
-      }
+      if (b.hostPresent === false) return void this.hostFailure(requestId);
       this.emit({
         type: 'rootherald-response',
         requestId,
@@ -103,15 +127,7 @@ export class FakeWindow implements MessageWindow {
     if (req.action === 'collect') {
       if (b.collectHangs) return;
       if (b.extensionPresent === false) return; // no relay at all
-      if (b.hostPresent === false) {
-        this.emit({
-          type: 'rootherald-response',
-          requestId,
-          success: false,
-          error: b.hostError ?? 'Native host disconnected',
-        });
-        return;
-      }
+      if (b.hostPresent === false) return void this.hostFailure(requestId);
       this.emit({
         type: 'rootherald-response',
         requestId,
@@ -124,24 +140,33 @@ export class FakeWindow implements MessageWindow {
       return;
     }
 
-    if (req.action === 'enroll') {
-      this.lastEnrollServerUrl = req.serverUrl;
-      if (b.enrollHangs) return;
+    if (req.action === 'enroll-begin') {
+      if (b.enrollBeginHangs) return;
       if (b.extensionPresent === false) return; // no relay at all
-      if (b.hostPresent === false) {
-        this.emit({
-          type: 'rootherald-response',
-          requestId,
-          success: false,
-          error: b.hostError ?? 'Native host disconnected',
-        });
-        return;
-      }
+      if (b.hostPresent === false) return void this.hostFailure(requestId);
       this.emit({
         type: 'rootherald-response',
         requestId,
         success: true,
-        data: { deviceId: b.deviceId ?? 'device-1' },
+        data: b.enrollBeginNoBlob
+          ? {}
+          : { enrollRequestBlob: b.enrollRequestBlob ?? DEFAULT_ENROLL_REQUEST },
+      });
+      return;
+    }
+
+    if (req.action === 'enroll-complete') {
+      this.lastChallenge = req.challenge;
+      if (b.enrollCompleteHangs) return;
+      if (b.extensionPresent === false) return;
+      if (b.hostPresent === false) return void this.hostFailure(requestId);
+      this.emit({
+        type: 'rootherald-response',
+        requestId,
+        success: true,
+        data: b.enrollCompleteNoBlob
+          ? {}
+          : { activationBlob: b.activationBlob ?? DEFAULT_ACTIVATION },
       });
       return;
     }

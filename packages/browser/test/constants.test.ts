@@ -5,7 +5,8 @@ import {
   ACTION_PING,
   ACTION_COLLECT,
   ACTION_STATUS,
-  ACTION_ENROLL,
+  ACTION_ENROLL_BEGIN,
+  ACTION_ENROLL_COMPLETE,
   REQUEST_TYPE,
   RESPONSE_TYPE,
 } from '../src/constants.js';
@@ -26,6 +27,7 @@ describe('constants', () => {
     expect(ACTION_PING).toBe('ping');
     expect(ACTION_COLLECT).toBe('collect');
     expect(ACTION_STATUS).toBe('status');
-    expect(ACTION_ENROLL).toBe('enroll');
+    expect(ACTION_ENROLL_BEGIN).toBe('enroll-begin');
+    expect(ACTION_ENROLL_COMPLETE).toBe('enroll-complete');
   });
 });

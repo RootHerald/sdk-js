@@ -31,6 +31,13 @@ import {
   RootHeraldApiError,
   UnknownPolicyError,
 } from "@rootherald/contracts/server";
+import type {
+  EnrollActivationChallenge,
+  EnrollActivationResponse,
+  EnrollRequestBlob,
+  RelayActivateResponse,
+  RelayEnrollResult,
+} from "@rootherald/contracts/server";
 
 /** Production RootHerald API base URL. */
 const DEFAULT_BASE_URL = "https://api.rootherald.io";
@@ -73,7 +80,7 @@ export interface AttestOptions {
   returnToken?: boolean;
 }
 
-/** Verdict plus the optional signed token, as returned by {@link RootHerald.attest}. */
+/** Verdict plus the optional signed token, as returned by {@link RootHerald.verify}. */
 export type AttestResult = AttestationVerdict & { token?: string };
 
 /**
@@ -122,11 +129,12 @@ export class RootHerald {
   }
 
   /**
-   * C1 — `POST /api/v1/attestations/challenge`. Mints a relay-friendly nonce.
-   * Relay `nonce` to the client; the client quotes over it, then submit the
-   * resulting evidence with {@link attest} using the returned `challengeId`.
+   * `POST /api/v1/attestations/challenge` — mints a fresh, relay-friendly nonce
+   * (freshness / anti-replay). Relay `nonce` to the client; the client quotes
+   * over it, then submit the resulting evidence with {@link verify} using the
+   * returned `challengeId`.
    */
-  async createChallenge(opts?: CreateChallengeOptions): Promise<ChallengeResponse> {
+  async issueChallenge(opts?: CreateChallengeOptions): Promise<ChallengeResponse> {
     const body: { deviceHint?: string } = {};
     if (opts?.deviceHint !== undefined) body.deviceHint = opts.deviceHint;
 
@@ -153,9 +161,11 @@ export class RootHerald {
   }
 
   /**
-   * C2 — `POST /api/v1/attestations/verify`. Submits the opaque evidence blob
-   * for server-side appraisal and returns the verdict (plus an optional signed
-   * EAT when `returnToken: true`).
+   * `POST /api/v1/attestations/verify` — submits the opaque evidence blob for
+   * server-side appraisal and returns the verdict (plus an optional signed EAT
+   * when `returnToken: true`). The verdict is computed by RootHerald and
+   * returned here, to the customer's backend — it NEVER travels through the
+   * client, which holds no key and gets no verdict.
    *
    * An un-enrolled / failing device is NOT an error — it returns a normal
    * verdict with a `fail` (or `warn`) result. Only protocol/auth/quota problems
@@ -165,10 +175,10 @@ export class RootHerald {
    *
    * @param evidence  Opaque blob from the client collector; passed through verbatim.
    */
-  async attest(evidence: EvidenceBlob, opts: AttestOptions): Promise<AttestResult> {
+  async verify(evidence: EvidenceBlob, opts: AttestOptions): Promise<AttestResult> {
     if (!opts || typeof opts.challengeId !== "string" || !opts.challengeId) {
       throw new RootHeraldError(
-        "attest() requires `challengeId` (from createChallenge)",
+        "verify() requires `challengeId` (from issueChallenge)",
         "MISSING_CHALLENGE_ID",
       );
     }
@@ -196,11 +206,138 @@ export class RootHerald {
     return result;
   }
 
-  /** Issues an authenticated JSON POST and maps non-2xx responses to typed errors. */
-  private async post<T>(path: string, body: unknown): Promise<T> {
-    let res: Response;
+  /**
+   * Enroll relay — leg 1. `POST /api/v1/devices/enroll`.
+   *
+   * Relays the client's `EnrollBegin()` blob to RootHerald with the `rh_sk_`
+   * secret and resolves the asymmetric response (see {@link RelayEnrollResult}):
+   *
+   *   - **`201`** — a fresh enroll; returns `{ deviceId, challenge, alreadyEnrolled: false }`.
+   *     Hand `challenge` to the client's `EnrollComplete`, then relay the result
+   *     to {@link relayActivate}.
+   *   - **`409`** — the device is already enrolled; returns
+   *     `{ deviceId, alreadyEnrolled: true }` (no challenge). SKIP the activate
+   *     leg — the device is already bound; just use `deviceId`.
+   *
+   * The client never holds the `rh_sk_` key and never talks to RootHerald; this
+   * backend helper is the only thing that does.
+   */
+  async relayEnroll(enrollRequestBlob: EnrollRequestBlob): Promise<RelayEnrollResult> {
+    if (
+      !enrollRequestBlob ||
+      typeof enrollRequestBlob.ekPublicKey !== "string" ||
+      typeof enrollRequestBlob.akPublicArea !== "string"
+    ) {
+      throw new RootHeraldError(
+        "relayEnroll() requires an enroll request blob with `ekPublicKey` and `akPublicArea`",
+        "INVALID_ENROLL_BLOB",
+      );
+    }
+
+    const res = await this.rawPost("/api/v1/devices/enroll", enrollRequestBlob);
+
+    // 409 = already enrolled: the body carries only `deviceId`. Resolve it and
+    // signal "skip activate" instead of treating it as an error.
+    if (res.status === 409) {
+      const body = await readJsonObject(res);
+      const deviceId = typeof body.deviceId === "string" ? body.deviceId : undefined;
+      if (!deviceId) {
+        throw new RootHeraldApiError(
+          "already-enrolled (409) response missing `deviceId`",
+          "INVALID_RESPONSE",
+          409,
+        );
+      }
+      return { deviceId, alreadyEnrolled: true };
+    }
+
+    if (!res.ok) {
+      throw await toApiError(res);
+    }
+
+    const data = await parseJson<EnrollActivationChallenge>(res);
+    if (
+      !data ||
+      typeof data.deviceId !== "string" ||
+      typeof data.credentialBlob !== "string" ||
+      typeof data.encryptedSecret !== "string"
+    ) {
+      throw new RootHeraldApiError(
+        "enroll response missing deviceId/credentialBlob/encryptedSecret",
+        "INVALID_RESPONSE",
+        res.status,
+      );
+    }
+    return { deviceId: data.deviceId, challenge: data, alreadyEnrolled: false };
+  }
+
+  /**
+   * Enroll relay — leg 2. `POST /api/v1/devices/activate`.
+   *
+   * Relays the client's `EnrollComplete()` blob (the decrypted credential
+   * secret) to RootHerald, completing the EK→AK credential-activation handshake.
+   * Call this only when {@link relayEnroll} returned `alreadyEnrolled: false`.
+   *
+   * Returns the terminal `{ deviceId, status?, enrolledAt? }` body; `deviceId`
+   * is the load-bearing field the backend maps to its user.
+   */
+  async relayActivate(
+    activationResponse: EnrollActivationResponse,
+  ): Promise<RelayActivateResponse> {
+    if (
+      !activationResponse ||
+      typeof activationResponse.deviceId !== "string" ||
+      !activationResponse.deviceId ||
+      typeof activationResponse.decryptedSecret !== "string"
+    ) {
+      throw new RootHeraldError(
+        "relayActivate() requires an activation response with `deviceId` and `decryptedSecret`",
+        "INVALID_ACTIVATION_BLOB",
+      );
+    }
+
+    const data = await this.post<RelayActivateResponse>(
+      "/api/v1/devices/activate",
+      activationResponse,
+    );
+    if (!data || typeof data.deviceId !== "string") {
+      throw new RootHeraldApiError(
+        "activate response missing `deviceId`",
+        "INVALID_RESPONSE",
+        200,
+      );
+    }
+    const result: RelayActivateResponse = { deviceId: data.deviceId };
+    if (typeof data.status === "string") result.status = data.status;
+    if (typeof data.enrolledAt === "string") result.enrolledAt = data.enrolledAt;
+    return result;
+  }
+
+  /**
+   * @deprecated Renamed to {@link issueChallenge} for the ABI 2.0 backend
+   * contract. Retained as a thin alias for backwards compatibility.
+   */
+  async createChallenge(opts?: CreateChallengeOptions): Promise<ChallengeResponse> {
+    return this.issueChallenge(opts);
+  }
+
+  /**
+   * @deprecated Renamed to {@link verify} for the ABI 2.0 backend contract.
+   * Retained as a thin alias for backwards compatibility.
+   */
+  async attest(evidence: EvidenceBlob, opts: AttestOptions): Promise<AttestResult> {
+    return this.verify(evidence, opts);
+  }
+
+  /**
+   * Issues an authenticated JSON POST, returning the raw {@link Response}. Maps
+   * only transport failures to a `NETWORK_ERROR`; status interpretation is left
+   * to the caller (used by relay legs that must inspect specific statuses such
+   * as the enroll `409`).
+   */
+  private async rawPost(path: string, body: unknown): Promise<Response> {
     try {
-      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      return await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.secretKey}`,
@@ -213,24 +350,49 @@ export class RootHerald {
       const msg = err instanceof Error ? err.message : String(err);
       throw new RootHeraldError(`network request failed: ${msg}`, "NETWORK_ERROR", err);
     }
+  }
 
+  /** Issues an authenticated JSON POST and maps non-2xx responses to typed errors. */
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    const res = await this.rawPost(path, body);
     if (!res.ok) {
       throw await toApiError(res);
     }
-
-    try {
-      return (await res.json()) as T;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new RootHeraldApiError(
-        `failed to parse JSON response: ${msg}`,
-        "INVALID_RESPONSE",
-        res.status,
-        undefined,
-        err,
-      );
-    }
+    return parseJson<T>(res);
   }
+}
+
+/** Parses a JSON response body, mapping a parse failure to a typed API error. */
+async function parseJson<T>(res: Response): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new RootHeraldApiError(
+      `failed to parse JSON response: ${msg}`,
+      "INVALID_RESPONSE",
+      res.status,
+      undefined,
+      err,
+    );
+  }
+}
+
+/**
+ * Reads a response body as a plain object, unknown-safely. Returns `{}` for a
+ * non-object or unparseable body so callers can probe individual fields without
+ * throwing on an empty/odd body.
+ */
+async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
+  try {
+    const parsed: unknown = await res.json();
+    if (parsed && typeof parsed === "object") {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // fall through
+  }
+  return {};
 }
 
 /**

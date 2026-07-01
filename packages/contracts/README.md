@@ -22,6 +22,16 @@ npm install @rootherald/contracts
   `RequireAttestationMiddlewareOptions`.
 - **Background-Check wire types** — `ChallengeRequest` / `ChallengeResponse`,
   `EvidenceBlob`, `VerifyAttestationRequest` / `VerifyAttestationResponse`.
+- **Client ABI 2.0 enroll blobs** (client-neutral) — `EnrollRequestBlob`,
+  `EnrollActivationChallenge`, `EnrollActivationResponse`. The three client
+  verbs are Enroll (begin/complete), Attest, and PreCheck; the client holds no
+  RootHerald key and opens no socket to RootHerald.
+- **Backend relay contract** (server-context, on `/server`) — `RelayEnrollRequest`
+  / `RelayEnrollResponse` (+ the `409` `AlreadyEnrolledResponse` and the
+  normalized `RelayEnrollResult` discriminated union), `RelayActivateRequest` /
+  `RelayActivateResponse`, alongside the challenge/verify pair, for the `rh_sk_`
+  server SDK helpers. `RelayEnrollResult` is the one shape every server SDK
+  returns from its `relayEnroll` helper.
 - **Error classes** — split by context (below).
 
 ## Errors: client-neutral vs server-context

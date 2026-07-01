@@ -4,15 +4,23 @@ Server-side SDK for Root Herald device attestation.
 
 There are two integration paths:
 
-**Background-Check (server -> server).** Your dumb client collects an opaque
-evidence blob (no keys, no Root Herald contact) and hands it to your server;
-your server appraises it with the `RootHerald` client, authenticated by your
-`rh_sk_` secret key.
+**Backend relay (server -> server, Client ABI 2.0).** Your dumb client does
+local TPM work and hands your server opaque blobs (no keys, no Root Herald
+contact). Your server relays those blobs to Root Herald with the `RootHerald`
+client, authenticated by your `rh_sk_` secret key. The verdict is computed by
+Root Herald and returned to *your backend* — it never travels through the client.
 
 - `new RootHerald({ secretKey })` — the server client.
-- `rh.createChallenge(opts?)` — mint a relay-friendly nonce.
-- `rh.attest(evidence, { challengeId })` — submit evidence, get an
+- `rh.relayEnroll(enrollRequestBlob)` — enroll leg 1 (`POST /devices/enroll`).
+  `201` returns the activation `challenge` + `deviceId`; `409` means the device
+  is already enrolled (`alreadyEnrolled: true`, `deviceId` only — skip leg 2).
+- `rh.relayActivate(activationResponse)` — enroll leg 2 (`POST /devices/activate`).
+- `rh.issueChallenge(opts?)` — mint a relay-friendly nonce.
+- `rh.verify(evidence, { challengeId })` — submit evidence, get an
   `AttestationVerdict` (and an optional signed token).
+
+> `createChallenge` / `attest` remain as deprecated aliases for `issueChallenge`
+> / `verify`.
 
 **Offline / badge tier.** Verify a Root Herald-issued attestation JWT yourself.
 
@@ -28,7 +36,31 @@ your server appraises it with the `RootHerald` client, authenticated by your
 pnpm add @rootherald/node
 ```
 
-## Background-Check: appraise a device server-side
+## Enroll a device (backend-relayed, two legs)
+
+Enrollment is a credential-activation handshake. Your client produces an
+`enrollRequestBlob`; your backend relays it and (on a fresh enroll) relays the
+client's activation response back.
+
+```ts
+import { RootHerald } from '@rootherald/node';
+
+const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
+
+// Leg 1: relay the client's EnrollBegin() blob.
+const enroll = await rh.relayEnroll(enrollRequestBlob);
+
+if (enroll.alreadyEnrolled) {
+  // 409: the device is already bound. Just use enroll.deviceId — skip leg 2.
+} else {
+  // 201: hand enroll.challenge to the client's EnrollComplete(), which returns
+  // an activationResponse blob; relay it to finish binding.
+  const activated = await rh.relayActivate(activationResponse);
+  // activated.deviceId is the bound device.
+}
+```
+
+## Attest a device server-side
 
 ```ts
 import { RootHerald } from '@rootherald/node';
@@ -36,11 +68,11 @@ import { RootHerald } from '@rootherald/node';
 const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
 
 // 1. Mint a nonce and relay it to your client.
-const { challengeId, nonce, expiresAt } = await rh.createChallenge();
+const { challengeId, nonce, expiresAt } = await rh.issueChallenge();
 
 // 2. Your client quotes over `nonce` and returns an opaque `evidence` blob to
 //    your server. Submit it for appraisal.
-const verdict = await rh.attest(evidence, {
+const verdict = await rh.verify(evidence, {
   challengeId,
   policy: 'rootherald:builtin:default', // caller-named policy; fail-closed
   returnToken: true,                    // opt-in signed EAT (default false)
@@ -194,6 +226,7 @@ additionally satisfied only when the verdict carries the device evidence
 
 ## What this package exports
 
-The public surface is the `RootHerald` server client (for the Background-Check
-flow), `verifyAttestationToken`, and `requireAttestation`. There is no webhook
-receiver in this package.
+The public surface is the `RootHerald` server client (for the backend-relayed
+enroll + attest flow — `relayEnroll`, `relayActivate`, `issueChallenge`,
+`verify`), `verifyAttestationToken`, and `requireAttestation`. There is no
+webhook receiver in this package.

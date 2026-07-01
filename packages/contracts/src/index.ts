@@ -35,6 +35,15 @@ export type {
   VerifyAttestationResponse,
 } from "./background-check.js";
 
+// Client ABI 2.0 enroll-handshake blobs (client-neutral). The client emits/
+// consumes these; the customer's backend relays them. The server-side relay
+// pair (RelayEnroll*/RelayActivate*) lives on "@rootherald/contracts/server".
+export type {
+  EnrollActivationChallenge,
+  EnrollActivationResponse,
+  EnrollRequestBlob,
+} from "./enroll.js";
+
 // Client-neutral errors. `RootHeraldError` is the base of everything;
 // `TokenExpiredError` / `InvalidTokenError` come out of token verification.
 // `RootHeraldApiError` is the base for the Background-Check API errors below.
