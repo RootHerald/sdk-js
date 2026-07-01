@@ -1,7 +1,7 @@
 {
-  "name": "@rootherald/node",
-  "version": "0.1.0-alpha.7",
-  "description": "Node.js server SDK for Root Herald \u2014 verify device-attestation JWTs and gate requests with attestation middleware",
+  "name": "@rootherald/browser",
+  "version": "0.1.0-alpha.0",
+  "description": "Browser SDK for Root Herald — brokers device-evidence collection through the RootHerald browser extension and exposes cold-start client detection",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -17,8 +17,7 @@
   "files": [
     "dist",
     "src",
-    "README.md",
-    "CHANGELOG.md"
+    "README.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -27,8 +26,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@rootherald/contracts": "workspace:*",
-    "jose": "^5.9.0"
+    "@rootherald/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -42,9 +40,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RootHerald/sdk-js.git",
-    "directory": "packages/node"
+    "directory": "packages/browser"
   },
-  "homepage": "https://github.com/RootHerald/sdk-js/tree/main/packages/node#readme",
+  "homepage": "https://github.com/RootHerald/sdk-js/tree/main/packages/browser#readme",
   "bugs": {
     "url": "https://github.com/RootHerald/sdk-js/issues"
   }

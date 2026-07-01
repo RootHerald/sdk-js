@@ -146,6 +146,177 @@ describe("requireAttestation", () => {
     expect((next.mock.calls[0]![0] as RootHeraldError).code).toBe("AUTH_TOO_OLD");
   });
 
+  // ── ACR cross-track separation (node-sdk-acr-cross-track-bypass) ──────────
+  // The device-only and user tiers are SEPARATE tracks (acr-values.md
+  // "Hierarchy and Subsumption"): a user-track ACR must never satisfy a
+  // device-track requirement, and device:high requires the evidence booleans.
+
+  it("SECURITY: user:1fa token does NOT satisfy a device:high requirement (cross-track)", async () => {
+    // A pure user-auth token, with NO high-assurance device evidence.
+    const token = await fixtures.signToken({
+      iss: "https://rootherald.example.com",
+      aud: "my-client",
+      sub: "user-uuid-1",
+      acr: "urn:rootherald:user:1fa",
+      amr: ["pwd"],
+      rootherald_device: {
+        quote_verified: false,
+        secure_boot_verified: false,
+        event_log_verified: false,
+      },
+    });
+    const middleware = requireAttestation({
+      ...baseOptions(createLocalJWKSet(fixtures.publicJwks)),
+      acrValues: ["urn:rootherald:device:high"],
+    } as any);
+
+    const req = makeReq(`Bearer ${token}`);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware(req, res, next);
+
+    // Must fail CLOSED with the RFC 9470 step-up challenge.
+    expect(res.statusCode).toBe(401);
+    expect(res.headers["WWW-Authenticate"]).toContain("insufficient_user_authentication");
+    expect(res.headers["WWW-Authenticate"]).toContain("acr_values");
+    expect((next.mock.calls[0]![0] as RootHeraldError).code).toBe("INSUFFICIENT_ACR");
+  });
+
+  it("proper device:high token (quote + secure_boot + event_log verified) satisfies device:high", async () => {
+    const token = await fixtures.signToken({
+      iss: "https://rootherald.example.com",
+      aud: "my-client",
+      sub: "device-uuid-1",
+      acr: "urn:rootherald:device:high",
+      amr: [],
+      rootherald_device: {
+        quote_verified: true,
+        secure_boot_verified: true,
+        event_log_verified: true,
+      },
+    });
+    const middleware = requireAttestation({
+      ...baseOptions(createLocalJWKSet(fixtures.publicJwks)),
+      acrValues: ["urn:rootherald:device:high"],
+    } as any);
+
+    const req = makeReq(`Bearer ${token}`);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect((req as Record<string, unknown>)["attestation"]).toBeDefined();
+  });
+
+  it("device:high token MISSING the evidence booleans is REJECTED", async () => {
+    const token = await fixtures.signToken({
+      iss: "https://rootherald.example.com",
+      aud: "my-client",
+      sub: "device-uuid-1",
+      acr: "urn:rootherald:device:high",
+      amr: [],
+      rootherald_device: {
+        // ACR claims device:high, but the evidence is absent — the ACR string
+        // alone must not be trusted.
+        quote_verified: true,
+        secure_boot_verified: false,
+        event_log_verified: false,
+      },
+    });
+    const middleware = requireAttestation({
+      ...baseOptions(createLocalJWKSet(fixtures.publicJwks)),
+      acrValues: ["urn:rootherald:device:high"],
+    } as any);
+
+    const req = makeReq(`Bearer ${token}`);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware(req, res, next);
+
+    expect(res.statusCode).toBe(401);
+    expect((next.mock.calls[0]![0] as RootHeraldError).code).toBe("INSUFFICIENT_ACR");
+  });
+
+  it("same-track laddering: device:high satisfies a device:any requirement", async () => {
+    const token = await fixtures.signToken({
+      iss: "https://rootherald.example.com",
+      aud: "my-client",
+      sub: "device-uuid-1",
+      acr: "urn:rootherald:device:high",
+      amr: [],
+      rootherald_device: {
+        ear_status: "affirming",
+        quote_verified: true,
+        secure_boot_verified: true,
+        event_log_verified: true,
+      },
+    });
+    const middleware = requireAttestation({
+      ...baseOptions(createLocalJWKSet(fixtures.publicJwks)),
+      acrValues: ["urn:rootherald:device:any"],
+    } as any);
+
+    const req = makeReq(`Bearer ${token}`);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect((req as Record<string, unknown>)["attestation"]).toBeDefined();
+  });
+
+  it("same-track laddering: a higher user tier satisfies a lower user requirement", async () => {
+    // Fixture default acr is user:phr; request the lower user:1fa.
+    const token = await fixtures.signToken({
+      iss: "https://rootherald.example.com",
+      aud: "my-client",
+      sub: "user-uuid-1",
+      acr: "urn:rootherald:user:phrh",
+      amr: ["pwd", "hwk", "user", "mfa"],
+    });
+    const middleware = requireAttestation({
+      ...baseOptions(createLocalJWKSet(fixtures.publicJwks)),
+      acrValues: ["urn:rootherald:user:1fa"],
+    } as any);
+
+    const req = makeReq(`Bearer ${token}`);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware(req, res, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect((req as Record<string, unknown>)["attestation"]).toBeDefined();
+  });
+
+  it("device:any token does NOT satisfy a user:1fa requirement (cross-track, reverse)", async () => {
+    const token = await fixtures.signToken({
+      iss: "https://rootherald.example.com",
+      aud: "my-client",
+      sub: "device-uuid-1",
+      acr: "urn:rootherald:device:any",
+      amr: [],
+    });
+    const middleware = requireAttestation({
+      ...baseOptions(createLocalJWKSet(fixtures.publicJwks)),
+      acrValues: ["urn:rootherald:user:1fa"],
+    } as any);
+
+    const req = makeReq(`Bearer ${token}`);
+    const res = makeRes();
+    const next = vi.fn();
+
+    await middleware(req, res, next);
+
+    expect(res.statusCode).toBe(401);
+    expect((next.mock.calls[0]![0] as RootHeraldError).code).toBe("INSUFFICIENT_ACR");
+  });
+
   it("calls onError hook when token verification fails", async () => {
     const onError = vi.fn();
     const middleware = requireAttestation({

@@ -2,8 +2,7 @@
  * RootHeraldSdkClient configuration types and defaults.
  */
 
-import type { AcrRequestOptions, RootHeraldSdkClientOptions } from '@rootherald/contracts';
-import type { TokenCache } from '@rootherald/contracts';
+import type { AcrRequestOptions, RootHeraldSdkClientOptions, TokenCache } from '@rootherald/contracts';
 import { createCache } from './storage.js';
 
 export type { RootHeraldSdkClientOptions };
