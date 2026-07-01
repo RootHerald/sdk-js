@@ -56,8 +56,7 @@ const ACR_ORDER: AcrUrn[] = [
 ];
 
 function acrRank(urn: AcrUrn): number {
-  const idx = ACR_ORDER.indexOf(urn);
-  return idx === -1 ? -1 : idx;
+  return ACR_ORDER.indexOf(urn);
 }
 
 /** Maps legacy assurance level to equivalent minimum ACR URN. */
@@ -293,7 +292,7 @@ export class RootHeraldSdkClient implements IRootHeraldSdkClient {
     await this._config.cache.delete(KEY_VERIFIER);
     await this._config.cache.delete(KEY_STATE);
 
-    // TODO: Wire server-side token revocation here once  Root Herald exposes
+    // TODO: Wire server-side token revocation here once RootHerald exposes
     // a revocation endpoint at /api/v1/oauth/revoke (RFC 7009). For now,
     // tokens are short-lived (5 min) so client-side removal is sufficient.
 

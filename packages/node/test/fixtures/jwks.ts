@@ -97,6 +97,7 @@ export async function getFixtures(): Promise<TestFixtures> {
       attested_at: claims.rootherald_device?.['attested_at'] ?? claims.attested_at ?? (now - 10),
       quote_verified: claims.rootherald_device?.['quote_verified'] ?? claims.quote_verified ?? true,
       secure_boot_verified: claims.rootherald_device?.['secure_boot_verified'] ?? claims.secure_boot_verified ?? true,
+      event_log_verified: claims.rootherald_device?.['event_log_verified'] ?? true,
       platform: claims.rootherald_device?.['platform'] ?? claims.platform ?? 'windows',
       hardware_model: claims.rootherald_device?.['hardware_model'] ?? claims.hardware_model ?? 'TPM 2.0',
     };
