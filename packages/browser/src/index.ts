@@ -55,6 +55,7 @@ export {
   RootHeraldBrowserError,
   ExtensionMissingError,
   HostMissingError,
+  NotEnrolledError,
   TimeoutError,
 } from './errors.js';
 export {

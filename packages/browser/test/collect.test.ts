@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { attest, collectEvidence } from '../src/collect.js';
-import { ExtensionMissingError, HostMissingError, TimeoutError } from '../src/errors.js';
+import {
+  ExtensionMissingError,
+  HostMissingError,
+  NotEnrolledError,
+  TimeoutError,
+} from '../src/errors.js';
 import { FakeWindow } from './fake-window.js';
 
 const FAST = { timeoutMs: 50 } as const;
@@ -58,6 +63,17 @@ describe('attest', () => {
     });
     await expect(attest('nonce-abc', { ...FAST, win })).rejects.toBeInstanceOf(
       TimeoutError,
+    );
+  });
+
+  it('classifies a host "not enrolled" error as NotEnrolledError (attest-first cue)', async () => {
+    const win = new FakeWindow({
+      extensionPresent: true,
+      hostPresent: false,
+      hostError: 'Device not enrolled — run enroll first',
+    });
+    await expect(attest('nonce-abc', { ...FAST, win })).rejects.toBeInstanceOf(
+      NotEnrolledError,
     );
   });
 
