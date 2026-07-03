@@ -12,7 +12,12 @@
 
 import type { EvidenceBlob } from '@rootherald/contracts';
 import { ACTION_COLLECT } from './constants.js';
-import { ExtensionMissingError, HostMissingError, TimeoutError } from './errors.js';
+import {
+  ExtensionMissingError,
+  HostMissingError,
+  NotEnrolledError,
+  TimeoutError,
+} from './errors.js';
 import { sendRequest, type MessageWindow } from './transport.js';
 
 /**
@@ -104,6 +109,11 @@ export async function attest<R>(
   } else {
     // Extension answered but failed: classify by the host error it surfaced.
     const errText = String(res.error ?? '').toLowerCase();
+    // Device has no attestation key yet — the "attest-first, enroll-on-miss"
+    // signal. Distinct from a missing host so callers can run enroll() + retry.
+    if (errText.includes('not enrolled')) {
+      throw new NotEnrolledError(res.error ?? 'Device is not enrolled — run enroll() first');
+    }
     if (
       errText.includes('native host') ||
       errText.includes('disconnect') ||
