@@ -40,6 +40,21 @@ export class HostMissingError extends RootHeraldBrowserError {
   }
 }
 
+/**
+ * The extension and native host are both present, but the device has no
+ * enrolled attestation key yet — the host returned "not enrolled" from a
+ * `collect`/`attest` call. This is the signal for the "attest-first,
+ * enroll-on-miss" pattern: catch it, run `enroll()`, then retry `attest()`.
+ * It is DISTINCT from {@link HostMissingError} (host unreachable) so callers
+ * can branch on "needs enrollment" vs "needs install".
+ */
+export class NotEnrolledError extends RootHeraldBrowserError {
+  constructor(message = 'Device is not enrolled — run enroll() first') {
+    super(message);
+    this.name = 'NotEnrolledError';
+  }
+}
+
 /** A collect/probe request exceeded its timeout without a usable response. */
 export class TimeoutError extends RootHeraldBrowserError {
   constructor(message = 'RootHerald request timed out') {
