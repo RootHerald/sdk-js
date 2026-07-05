@@ -8,15 +8,15 @@ There are two integration paths:
 local TPM work and hands your server opaque blobs (no keys, no Root Herald
 contact). Your server relays those blobs to Root Herald with the `RootHerald`
 client, authenticated by your `rh_sk_` secret key. The verdict is computed by
-Root Herald and returned to *your backend* — it never travels through the client.
+Root Herald and returned to *your backend*; it never travels through the client.
 
-- `new RootHerald({ secretKey })` — the server client.
-- `rh.relayEnroll(enrollRequestBlob)` — enroll leg 1 (`POST /devices/enroll`).
+- `new RootHerald({ secretKey })`: the server client.
+- `rh.relayEnroll(enrollRequestBlob)`: enroll leg 1 (`POST /devices/enroll`).
   `201` returns the activation `challenge` + `deviceId`; `409` means the device
-  is already enrolled (`alreadyEnrolled: true`, `deviceId` only — skip leg 2).
-- `rh.relayActivate(activationResponse)` — enroll leg 2 (`POST /devices/activate`).
-- `rh.issueChallenge(opts?)` — mint a relay-friendly nonce.
-- `rh.verify(evidence, { challengeId })` — submit evidence, get an
+  is already enrolled (`alreadyEnrolled: true`, `deviceId` only, so skip leg 2).
+- `rh.relayActivate(activationResponse)`: enroll leg 2 (`POST /devices/activate`).
+- `rh.issueChallenge(opts?)`: mint a relay-friendly nonce.
+- `rh.verify(evidence, { challengeId })`: submit evidence, get an
   `AttestationVerdict` (and an optional signed token).
 
 > `createChallenge` / `attest` remain as deprecated aliases for `issueChallenge`
@@ -24,9 +24,9 @@ Root Herald and returned to *your backend* — it never travels through the clie
 
 **Offline / badge tier.** Verify a Root Herald-issued attestation JWT yourself.
 
-- `verifyAttestationToken(token, options)` — verify a Root Herald attestation
+- `verifyAttestationToken(token, options)`: verify a Root Herald attestation
   JWT and get back a typed `AttestationVerdict`.
-- `requireAttestation(options)` — an Express/Connect-style middleware that
+- `requireAttestation(options)`: an Express/Connect-style middleware that
   verifies the bearer token, enforces ACR + freshness, and attaches the verdict
   at `req.attestation` (RFC 9470 step-up challenge on failure).
 
@@ -84,7 +84,7 @@ if (verdict.device.verdict === 'pass') {
 }
 ```
 
-`secretKey` is **required** and must be a secret key (`rh_sk_…`) — a publishable
+`secretKey` is **required** and must be a secret key (`rh_sk_…`); a publishable
 key (`rh_pk_…`) is rejected. `baseUrl` defaults to the production Root Herald
 API. An un-enrolled or failing device is **not** an error: it comes back as a
 normal verdict with a `fail`/`warn` result. Protocol/auth/quota problems raise a
@@ -211,7 +211,7 @@ RFC 9470 `WWW-Authenticate` step-up challenge.
 
 ### ACR tracks: device vs. user (security)
 
-`acrValues` is evaluated over **two separate tracks** — a device track
+`acrValues` is evaluated over **two separate tracks**: a device track
 (`device:any` < `device:high`) and a user track (`user:1fa` < `user:2fa` <
 `user:phr` < `user:phrh` < `user:phrh:fresh`). The tracks do **not** cross: a
 user-track token never satisfies a `device:*` requirement, and a device-track
@@ -227,6 +227,6 @@ additionally satisfied only when the verdict carries the device evidence
 ## What this package exports
 
 The public surface is the `RootHerald` server client (for the backend-relayed
-enroll + attest flow — `relayEnroll`, `relayActivate`, `issueChallenge`,
+enroll + attest flow: `relayEnroll`, `relayActivate`, `issueChallenge`,
 `verify`), `verifyAttestationToken`, and `requireAttestation`. There is no
 webhook receiver in this package.
