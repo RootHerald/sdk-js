@@ -1,6 +1,6 @@
 # @rootherald/* — JavaScript / TypeScript SDKs
 
-The Root Herald SDK family for JavaScript and TypeScript. Multiple packages, one repo, shared types, coordinated releases.
+The Root Herald SDK family for JavaScript and TypeScript: several packages in one repo, with shared types and coordinated releases.
 
 ## Packages
 
@@ -20,7 +20,7 @@ server SDKs at [github.com/RootHerald](https://github.com/RootHerald)).
 
 `@rootherald/js` (vanilla) and the `@rootherald/react` / `@rootherald/vue` /
 `@rootherald/angular` / `@rootherald/react-native` adapters are **deferred**
-while the core API stabilizes — they live under
+while the core API stabilizes. They live under
 [`packages-deferred/`](./packages-deferred) and are not published yet.
 
 ## Install
@@ -46,10 +46,10 @@ pnpm typecheck  # tsc --noEmit across the workspace
 
 ## Releases
 
-Each package versions independently via Changesets (or per-package tags). Releases use [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) — the GitHub Actions workflow OIDCs to npm, no `NPM_TOKEN` stored. Published packages carry [Sigstore provenance attestations](https://blog.sigstore.dev/npm-provenance-ga/) you can verify with `npm view <pkg> --json | jq .attestations`.
+Each package versions independently via Changesets (or per-package tags). Releases use [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/): the GitHub Actions workflow OIDCs to npm, with no `NPM_TOKEN` stored. Published packages carry [Sigstore provenance attestations](https://blog.sigstore.dev/npm-provenance-ga/) you can verify with `npm view <pkg> --json | jq .attestations`.
 
 ## License
 
 MIT. See [LICENSE](./LICENSE).
 
-Root Herald and the Root Herald logo are trademarks — see [NOTICE](./NOTICE).
+Root Herald and the Root Herald logo are trademarks; see [NOTICE](./NOTICE).
