@@ -33,7 +33,7 @@ npm install @rootherald/browser
 | `attest(nonce)` | Per-attestation fresh TPM quote over a backend-issued nonce. | opaque `EvidenceBlob` |
 | `getClientStatus()` | **PreCheck** — local readiness *signals* (never a verdict). | `ClientStatus` |
 
-### `enroll(relay)` — keyless, backend-relayed
+### `enroll(relay)`: keyless, backend-relayed
 
 Enrollment is a two-leg credential-activation handshake. The local TPM halves run
 on the native host under a single elevation; the **network legs are relayed by
@@ -69,9 +69,9 @@ second TPM leg and `relay.activate` are skipped and you just get the `deviceId`.
 
 > Your backend's `/rh/enroll` and `/rh/activate` handlers are the only place a
 > Root Herald key lives. They use `@rootherald/node`'s `relayEnroll` /
-> `relayActivate` — see that package for the backend half.
+> `relayActivate`. See that package for the backend half.
 
-### `attest(nonce)` — per-attestation evidence
+### `attest(nonce)`: per-attestation evidence
 
 ```ts
 import { attest } from '@rootherald/browser';
@@ -111,13 +111,13 @@ const result = await attest(nonce, {
 
 `attest` and `enroll` throw typed errors so a cold-start UI can route to the right fix:
 
-- `ExtensionMissingError` — the extension is not installed → link the store page.
-- `HostMissingError` — extension present, native host unreachable → download + run the installer.
-- `TimeoutError` — the operation started but did not finish in time.
+- `ExtensionMissingError`: the extension is not installed → link the store page.
+- `HostMissingError`: extension present, native host unreachable → download + run the installer.
+- `TimeoutError`: the operation started but did not finish in time.
 
 `collectEvidence` remains as a deprecated alias of `attest` (evidence-only).
 
-## PreCheck — cold-start detection
+## PreCheck: cold-start detection
 
 ```ts
 import { getClientStatus, onClientStatusChange } from '@rootherald/browser';
@@ -135,17 +135,17 @@ const stop = onClientStatusChange((s) => {
 // stop() when the stepper unmounts.
 ```
 
-These are **readiness signals, never a verdict** — they only help you avoid
+These are **readiness signals, never a verdict**. They only help you avoid
 spending an attestation that will hard-fail.
 
 ### How detection works
 
-- **OS / browser** — sniffed from the user-agent. The native host is
+- **OS / browser**: sniffed from the user-agent. The native host is
   **Windows-first**; `macos`/`linux` resolve `host: 'unsupported'`.
-- **Extension presence** — the page posts a `ping`; the extension's content
+- **Extension presence**: the page posts a `ping`; the extension's content
   script answers only when installed (it never broadcasts unsolicited, so
   non–Root Herald sites can't fingerprint it). A timeout means `missing`.
-- **Host reachability** — once the extension is present, a local-only `status`
+- **Host reachability**: once the extension is present, a local-only `status`
   request drives the extension's `connectNative` to the host. Success →
   `present`; a disconnect/timeout → `missing` (a distinct state, because it
   routes to a different fix).
