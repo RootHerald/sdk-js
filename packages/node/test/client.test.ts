@@ -349,6 +349,55 @@ describe("verify (ABI 2.0 name for attest)", () => {
     const out = await rh.attest({ blob: 1 }, { challengeId: "chal-1" });
     expect(out.device.ueid).toBe("device-uuid-1234");
   });
+
+  // ── G1: assuranceClaimsMet / enrollmentRequired come from the response ROOT ──
+  it("surfaces assuranceClaimsMet + enrollmentRequired from the response root (G1)", async () => {
+    const fetchMock = mockFetch(200, {
+      verdict: sampleVerdict(),
+      assuranceClaimsMet: ["device-bound", "fresh-attestation"],
+      enrollmentRequired: true,
+    });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    expect(out.assuranceClaimsMet).toEqual(["device-bound", "fresh-attestation"]);
+    expect(out.enrollmentRequired).toBe(true);
+    // Still a normal verdict alongside the root-level fields.
+    expect(out.device.verdict).toBe("pass");
+  });
+
+  it("reads assuranceClaimsMet + enrollmentRequired at the ROOT only, never from inside verdict (G1)", async () => {
+    // Decoy copies nested inside `verdict` with DIFFERENT values must be ignored;
+    // only the response-root siblings of `verdict` are surfaced.
+    const verdictWithDecoys = {
+      ...sampleVerdict(),
+      assuranceClaimsMet: ["NESTED-should-be-ignored"],
+      enrollmentRequired: false,
+    };
+    const fetchMock = mockFetch(200, {
+      verdict: verdictWithDecoys,
+      assuranceClaimsMet: ["root-claim"],
+      enrollmentRequired: true,
+    });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    // Root wins; the nested decoys are never picked up.
+    expect(out.assuranceClaimsMet).toEqual(["root-claim"]);
+    expect(out.enrollmentRequired).toBe(true);
+  });
+
+  it("omits assuranceClaimsMet + enrollmentRequired when the root does not send them (G1)", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    expect(out.assuranceClaimsMet).toBeUndefined();
+    expect(out.enrollmentRequired).toBeUndefined();
+  });
 });
 
 // ── Enroll relay: relayEnroll / relayActivate ──────────────────────────────
