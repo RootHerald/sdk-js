@@ -80,8 +80,26 @@ export interface AttestOptions {
   returnToken?: boolean;
 }
 
-/** Verdict plus the optional signed token, as returned by {@link RootHerald.verify}. */
-export type AttestResult = AttestationVerdict & { token?: string };
+/**
+ * Verdict plus the response top-level fields, as returned by
+ * {@link RootHerald.verify}. `assuranceClaimsMet` and `enrollmentRequired` are
+ * surfaced verbatim from the server response so callers can gate capabilities
+ * and drive the enroll-on-miss flow (they are NOT part of the nested verdict).
+ */
+export type AttestResult = AttestationVerdict & {
+  /**
+   * The assurance claims the device satisfied for the resolved policy. Absent
+   * when the server returns none.
+   */
+  assuranceClaimsMet?: string[];
+  /**
+   * `true` when the device is not enrolled and the caller should drive the
+   * enroll / re-attestation flow before trusting the verdict.
+   */
+  enrollmentRequired?: boolean;
+  /** The optional signed EAT (JWT), present only when `returnToken: true`. */
+  token?: string;
+};
 
 /**
  * Server-side RootHerald client for the Background-Check flow.
@@ -202,6 +220,16 @@ export class RootHerald {
       );
     }
     const result = normalizeVerdictDates(data.verdict as AttestResult);
+    // Surface the response top-level fields the server sends alongside the
+    // verdict — customers gate capabilities on `assuranceClaimsMet` and drive
+    // the enroll-on-miss flow on `enrollmentRequired`. These live at the
+    // response root, NOT inside `verdict`.
+    if (Array.isArray(data.assuranceClaimsMet)) {
+      result.assuranceClaimsMet = data.assuranceClaimsMet;
+    }
+    if (typeof data.enrollmentRequired === "boolean") {
+      result.enrollmentRequired = data.enrollmentRequired;
+    }
     if (typeof data.token === "string") result.token = data.token;
     return result;
   }
