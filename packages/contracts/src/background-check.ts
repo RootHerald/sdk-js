@@ -62,6 +62,18 @@ export interface VerifyAttestationRequest {
 export interface VerifyAttestationResponse {
   /** The appraisal verdict — the EXISTING `AttestationVerdict` shape. */
   verdict: AttestationVerdict;
+  /**
+   * The assurance claims the device satisfied for the resolved policy (e.g.
+   * ACR/AMR-derived capability tags). Use these to gate capabilities on the
+   * customer backend. Omitted when the server returns none.
+   */
+  assuranceClaimsMet?: string[];
+  /**
+   * `true` when the device is not yet enrolled and the caller should drive the
+   * enroll/re-attestation flow before trusting the verdict. Drives the
+   * documented attest-first / enroll-on-miss pattern.
+   */
+  enrollmentRequired?: boolean;
   /** The signed EAT JWT, present only when `returnToken: true` was requested. */
   token?: string;
 }

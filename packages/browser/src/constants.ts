@@ -36,8 +36,11 @@ export const RESPONSE_TYPE = 'rootherald-response' as const;
 export const ACTION_PING = 'ping' as const;
 /** Action: collect a fresh evidence blob over the backend-issued nonce (host CollectEvidence). */
 export const ACTION_COLLECT = 'collect' as const;
-/** Action: local device readiness/posture signals (host CollectPosture; no network). */
+/** Action: local device readiness signals (host GetDeviceInfo; no network). */
 export const ACTION_STATUS = 'status' as const;
+// NOTE: the richer host `CollectPosture` action (detailed posture signals) is a
+// SEPARATE native verb and is NOT currently surfaced by this browser SDK — there
+// is no `posture` action here. `status` maps to the host's `GetDeviceInfo`.
 /**
  * Action: enroll leg 1 — the host's `EnrollBegin`. Runs the local TPM half (gen
  * AK, gather EK material) and returns an opaque `enrollRequestBlob`
