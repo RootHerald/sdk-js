@@ -42,9 +42,6 @@ importers:
       '@rootherald/contracts':
         specifier: workspace:*
         version: link:../contracts
-      jose:
-        specifier: ^5.9.0
-        version: 5.10.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -779,9 +776,6 @@ packages:
 
   is-potential-custom-element-name@1.0.1:
     resolution: {integrity: sha512-bCYeRA2rVibKZd+s2625gGnGF/t7DSqDs4dP7CrLA1m7jKWz6pps0LpYLJN8Q64HtmPKJ1hrN3nzPNKFEKOUiQ==}
-
-  jose@5.10.0:
-    resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
 
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
@@ -1742,8 +1736,6 @@ snapshots:
 
   is-potential-custom-element-name@1.0.1:
     optional: true
-
-  jose@5.10.0: {}
 
   joycon@3.1.1: {}
 

@@ -2,8 +2,6 @@
 
 Server-side SDK for Root Herald device attestation.
 
-There are two integration paths:
-
 **Backend relay (server -> server, Client ABI 2.0).** Your dumb client does
 local TPM work and hands your server opaque blobs (no keys, no Root Herald
 contact). Your server relays those blobs to Root Herald with the `RootHerald`
@@ -17,18 +15,10 @@ Root Herald and returned to *your backend*; it never travels through the client.
 - `rh.relayActivate(activationResponse)`: enroll leg 2 (`POST /devices/activate`).
 - `rh.issueChallenge(opts?)`: mint a relay-friendly nonce.
 - `rh.verify(evidence, { challengeId })`: submit evidence, get an
-  `AttestationVerdict` (and an optional signed token).
+  `AttestationVerdict`.
 
 > `createChallenge` / `attest` remain as deprecated aliases for `issueChallenge`
 > / `verify`.
-
-**Offline / badge tier.** Verify a Root Herald-issued attestation JWT yourself.
-
-- `verifyAttestationToken(token, options)`: verify a Root Herald attestation
-  JWT and get back a typed `AttestationVerdict`.
-- `requireAttestation(options)`: an Express/Connect-style middleware that
-  verifies the bearer token, enforces ACR + freshness, and attaches the verdict
-  at `req.attestation` (RFC 9470 step-up challenge on failure).
 
 ## Install
 
@@ -75,17 +65,15 @@ const { challengeId, nonce, expiresAt } = await rh.issueChallenge();
 const verdict = await rh.verify(evidence, {
   challengeId,
   policy: 'rootherald:builtin:default', // caller-named policy; fail-closed
-  returnToken: true,                    // opt-in signed EAT (default false)
 });
 
 if (verdict.device.verdict === 'pass') {
-  // verdict is the same AttestationVerdict shape as the offline path.
-  // verdict.token (when returnToken:true) is verifiable with verifyAttestationToken.
+  // gate the capability on the verdict returned to your backend.
 }
 ```
 
-`secretKey` is **required** and must be a secret key (`rh_sk_…`); a publishable
-key (`rh_pk_…`) is rejected. `baseUrl` defaults to the production Root Herald
+`secretKey` is **required** and must start with `rh_sk_`; any other value is
+rejected. `baseUrl` defaults to the production Root Herald
 API. An un-enrolled or failing device is **not** an error: it comes back as a
 normal verdict with a `fail`/`warn` result. Protocol/auth/quota problems raise a
 typed `RootHeraldApiError`:
@@ -101,39 +89,6 @@ typed `RootHeraldApiError`:
 All extend `RootHeraldApiError` (which carries `.status` and the server's
 `.errorCode`), which extends `RootHeraldError`. Network calls use the built-in
 `fetch` (Node 18+).
-
-## Verify a token
-
-```ts
-import { verifyAttestationToken } from '@rootherald/node';
-
-const verdict = await verifyAttestationToken(token, {
-  issuer: 'https://rootherald.example.com',
-  audience: 'your-client-id',
-});
-
-console.log(verdict.device.ueid);   // device UUID (the EAT `ueid`)
-console.log(verdict.device.earStatus);  // 'affirming' | 'warning' | ...
-console.log(verdict.acr);           // satisfied ACR URN
-console.log(verdict.device.quoteVerified); // boolean
-```
-
-By default the JWKS is fetched from `${issuer}/.well-known/jwks.json`. Override
-with `jwksUri` if your deployment serves it elsewhere.
-
-### `verifyAttestationToken(token, options)`
-
-| Option            | Type                 | Default                              | Notes |
-| ----------------- | -------------------- | ------------------------------------ | ----- |
-| `issuer`          | `string`             | _(required)_                         | Expected `iss`. |
-| `audience`        | `string \| string[]` | —                                    | Expected `aud` (your client_id). |
-| `jwksUri`         | `string`             | `${issuer}/.well-known/jwks.json`    | Override the JWKS URL. |
-| `clockTolerance`  | `number`             | `5`                                  | Clock-skew tolerance, seconds. |
-| `jwksCacheMs`     | `number`             | `3_600_000`                          | JWKS cache TTL, milliseconds. |
-
-Throws `TokenExpiredError` when `exp` is in the past and `InvalidTokenError`
-for any signature / issuer / audience / schema failure. Both extend
-`RootHeraldError` (exported, with a `.code`).
 
 ### The verdict shape
 
@@ -159,74 +114,10 @@ verdict.device.eventLogVerified     // boolean | undefined
 verdict.device.platform             // Platform | undefined
 verdict.device.hardwareModel        // string | undefined
 verdict.device.trustworthinessVector // AR4SI vector | undefined
-
-verdict.raw            // the raw verified JWT claim set
 ```
-
-## Gate requests with the middleware
-
-```ts
-import express from 'express';
-import { requireAttestation } from '@rootherald/node';
-import type { AttestationVerdict } from '@rootherald/node';
-
-// Type req.attestation once (e.g. in a .d.ts file):
-declare global {
-  namespace Express {
-    interface Request {
-      attestation?: AttestationVerdict;
-    }
-  }
-}
-
-const app = express();
-
-// Gate a sensitive endpoint behind a fresh, high-assurance attestation.
-app.post(
-  '/api/export',
-  requireAttestation({
-    issuer: 'https://rootherald.example.com',
-    audience: 'your-client-id',
-    acrValues: ['urn:rootherald:device:high'], // required ACR URN(s)
-    maxAgeSeconds: 300,                         // re-attest within 5 minutes
-  }),
-  (req, res) => {
-    // req.attestation is verified, ACR-checked, and fresh.
-    res.json({ device: req.attestation!.device.ueid });
-  },
-);
-```
-
-`requireAttestation` takes every `verifyAttestationToken` option plus:
-
-| Option           | Type                                | Notes |
-| ---------------- | ----------------------------------- | ----- |
-| `acrValues`      | `AcrUrn[]`                          | Accepted if the token's ACR meets the highest in the list. |
-| `maxAgeSeconds`  | `number`                            | Reject if `auth_time` is older than this. |
-| `tokenExtractor` | `(req) => string \| null`           | Default: `Bearer` token from the `Authorization` header. |
-| `onError`        | `(err, req, res) => void`           | Custom error hook. |
-
-On insufficient ACR or stale `auth_time` the middleware responds `401` with an
-RFC 9470 `WWW-Authenticate` step-up challenge.
-
-### ACR tracks: device vs. user (security)
-
-`acrValues` is evaluated over **two separate tracks**: a device track
-(`device:any` < `device:high`) and a user track (`user:1fa` < `user:2fa` <
-`user:phr` < `user:phrh` < `user:phrh:fresh`). The tracks do **not** cross: a
-user-track token never satisfies a `device:*` requirement, and a device-track
-token never satisfies a `user:*` requirement. A `device:high` requirement is
-additionally satisfied only when the verdict carries the device evidence
-(`quoteVerified && secureBootVerified && eventLogVerified`).
-
-> **Breaking behavior change in 0.1.0-alpha.7 (security fix).** Earlier versions
-> used a single flattened ACR ladder, so a user-track token (e.g. `user:1fa`)
-> could wrongly pass a `device:*` gate. Such tokens are now correctly rejected.
-> See `CHANGELOG.md`.
 
 ## What this package exports
 
 The public surface is the `RootHerald` server client (for the backend-relayed
 enroll + attest flow: `relayEnroll`, `relayActivate`, `issueChallenge`,
-`verify`), `verifyAttestationToken`, and `requireAttestation`. There is no
-webhook receiver in this package.
+`verify`). There is no webhook receiver in this package.

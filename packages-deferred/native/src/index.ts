@@ -49,7 +49,11 @@ export interface RootHeraldVerifyResult {
 }
 
 export interface RootHeraldClientOptions {
-  /** Tenant publishable key (rh_pk_live_...). */
+  /**
+   * Public app identifier tagging evidence submissions to your backend.
+   * Keyless client — it holds no Root Herald key; your backend relays the
+   * collected device evidence to Root Herald with your secret rh_sk_ key.
+   */
   apiKey: string;
   /** Endpoint URL — direct, custom-domain, or proxy. */
   endpoint?: string;
