@@ -54,8 +54,6 @@ export interface VerifyAttestationRequest {
    * (unknown/foreign name => 422).
    */
   policy?: string;
-  /** Opt-in EAT (signed JWT) output. Default false. */
-  returnToken?: boolean;
 }
 
 /** Response body (200) for `POST /api/v1/attestations/verify` (C2). */
@@ -74,6 +72,4 @@ export interface VerifyAttestationResponse {
    * documented attest-first / enroll-on-miss pattern.
    */
   enrollmentRequired?: boolean;
-  /** The signed EAT JWT, present only when `returnToken: true` was requested. */
-  token?: string;
 }

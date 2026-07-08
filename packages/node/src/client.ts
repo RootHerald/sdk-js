@@ -7,11 +7,6 @@
  *   1. mint a relay-friendly nonce  (`createChallenge`)
  *   2. submit the evidence for appraisal and get a verdict  (`attest`)
  *
- * This is ADDITIVE. The offline/badge-tier path — `verifyAttestationToken`
- * and `requireAttestation` — is unchanged. The optional `token` returned by
- * `attest({ returnToken: true })` is itself verifiable with
- * `verifyAttestationToken`.
- *
  * Network calls use the built-in global `fetch` (Node 18+) — no HTTP library.
  */
 
@@ -42,14 +37,14 @@ import type {
 /** Production RootHerald API base URL. */
 const DEFAULT_BASE_URL = "https://api.rootherald.io";
 
-/** Secret keys are `rh_sk_`-prefixed; publishable keys (`rh_pk_`) must never be used here. */
+/** RootHerald API keys are `rh_sk_`-prefixed secret keys, used server-side as a Bearer token. */
 const SECRET_KEY_PREFIX = "rh_sk_";
 
 /** Options for constructing a {@link RootHerald} server client. */
 export interface RootHeraldClientOptions {
   /**
-   * Your RootHerald **secret** key (`rh_sk_…`). Required. A publishable key
-   * (`rh_pk_…`) is rejected — it must never be used server-side.
+   * Your RootHerald **secret** key (`rh_sk_…`). Required. Used server-side as a
+   * Bearer token; any value not starting with `rh_sk_` is rejected.
    */
   secretKey: string;
   /** API base URL. Default: the production RootHerald API. */
@@ -76,8 +71,6 @@ export interface AttestOptions {
    * `rootherald:builtin:*` name. Unknown/foreign names fail closed (422).
    */
   policy?: string;
-  /** Opt-in signed EAT (JWT) output. Default false. */
-  returnToken?: boolean;
 }
 
 /**
@@ -97,8 +90,6 @@ export type AttestResult = AttestationVerdict & {
    * enroll / re-attestation flow before trusting the verdict.
    */
   enrollmentRequired?: boolean;
-  /** The optional signed EAT (JWT), present only when `returnToken: true`. */
-  token?: string;
 };
 
 /**
@@ -128,7 +119,7 @@ export class RootHerald {
     }
     if (!key.startsWith(SECRET_KEY_PREFIX)) {
       throw new RootHeraldError(
-        "RootHerald `secretKey` must be a secret key (rh_sk_…); a publishable key must never be used server-side",
+        "RootHerald secret key must start with rh_sk_",
         "INVALID_SECRET_KEY_FORMAT",
       );
     }
@@ -180,16 +171,13 @@ export class RootHerald {
 
   /**
    * `POST /api/v1/attestations/verify` — submits the opaque evidence blob for
-   * server-side appraisal and returns the verdict (plus an optional signed EAT
-   * when `returnToken: true`). The verdict is computed by RootHerald and
-   * returned here, to the customer's backend — it NEVER travels through the
-   * client, which holds no key and gets no verdict.
+   * server-side appraisal and returns the verdict. The verdict is computed by
+   * RootHerald and returned here, to the customer's backend — it NEVER travels
+   * through the client, which holds no key and gets no verdict.
    *
    * An un-enrolled / failing device is NOT an error — it returns a normal
    * verdict with a `fail` (or `warn`) result. Only protocol/auth/quota problems
    * raise a typed {@link RootHeraldApiError}.
-   *
-   * The optional `token` is itself verifiable with `verifyAttestationToken`.
    *
    * @param evidence  Opaque blob from the client collector; passed through verbatim.
    */
@@ -206,7 +194,6 @@ export class RootHerald {
       evidence,
     };
     if (opts.policy !== undefined) body.policy = opts.policy;
-    if (opts.returnToken !== undefined) body.returnToken = opts.returnToken;
 
     const data = await this.post<VerifyAttestationResponse>(
       "/api/v1/attestations/verify",
@@ -230,7 +217,6 @@ export class RootHerald {
     if (typeof data.enrollmentRequired === "boolean") {
       result.enrollmentRequired = data.enrollmentRequired;
     }
-    if (typeof data.token === "string") result.token = data.token;
     return result;
   }
 

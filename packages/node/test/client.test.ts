@@ -53,8 +53,8 @@ describe("RootHerald constructor", () => {
     expect(() => new RootHerald({})).toThrow(RootHeraldError);
   });
 
-  it("throws when secretKey is not rh_sk_-prefixed (e.g. a publishable key)", () => {
-    expect(() => new RootHerald({ secretKey: "rh_pk_live_xyz" })).toThrow(RootHeraldError);
+  it("throws when secretKey is not rh_sk_-prefixed", () => {
+    expect(() => new RootHerald({ secretKey: "rh_bogus_xyz" })).toThrow(RootHeraldError);
   });
 
   it("accepts a valid rh_sk_ key", () => {
@@ -116,7 +116,6 @@ describe("attest", () => {
     expect(body.challengeId).toBe("chal-1");
     expect(body.policy).toBe("rootherald:builtin:strict");
     expect(body.evidence).toEqual(evidence); // verbatim pass-through
-    expect("returnToken" in body).toBe(false); // omitted when not requested
   });
 
   it("returns the parsed verdict", async () => {
@@ -127,18 +126,6 @@ describe("attest", () => {
     expect(verdict.device.ueid).toBe("device-uuid-1234");
     expect(verdict.device.verdict).toBe("pass");
     expect(verdict.acr).toBe("urn:rootherald:device:high");
-    expect(verdict.token).toBeUndefined();
-  });
-
-  it("surfaces the token when returnToken:true and the server returns one", async () => {
-    const fetchMock = mockFetch(200, { verdict: sampleVerdict(), token: "eyJ.aaa.bbb" });
-    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    const verdict = await rh.attest({ blob: 1 }, { challengeId: "chal-1", returnToken: true });
-
-    const [, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(JSON.parse(init.body).returnToken).toBe(true);
-    expect(verdict.token).toBe("eyJ.aaa.bbb");
   });
 
   it("returns a fail verdict (un-enrolled device) as a normal verdict, not an error", async () => {

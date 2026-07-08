@@ -7,13 +7,12 @@ import type {
   AcrUrn,
   AmrValue,
   AttestationType,
-  AttestationTokenClaims,
   EarStatus,
   Platform,
   Verdict,
 } from "./eat.js";
 
-/** Camel-cased trustworthiness vector. Mirrors `EarTrustworthinessVector` from the JWT. */
+/** Camel-cased AR4SI trustworthiness vector. Each dimension: 0 = unknown, 1 = warning, 2 = affirming. */
 export interface TrustworthinessVector {
   instanceIdentity?: number;
   configuration?: number;
@@ -75,35 +74,6 @@ export interface AttestationVerdict {
   requestedAcrValues: AcrUrn[];
   /** Device attestation result. */
   device: DeviceVerdict;
-  /** Raw JWT claim set, for consumers that need fields the SDK doesn't model. */
-  raw: AttestationTokenClaims;
-}
-
-/** Options shared by token verification functions. */
-export interface VerifyOptions {
-  /** Expected issuer URL. */
-  issuer: string;
-  /** Expected audience (your client_id). String or array of strings. */
-  audience?: string | string[];
-  /** Clock skew tolerance in seconds. Default: 5. */
-  clockTolerance?: number;
-  /** JWKS cache TTL in milliseconds. Default: 3_600_000 (1 hour). */
-  jwksCacheMs?: number;
-  /** Override the JWKS URL. Default: `${issuer}/.well-known/jwks.json`. */
-  jwksUri?: string;
-}
-
-/** Options for the Express/Fastify/Hono `requireAttestation` middleware. */
-export interface RequireAttestationMiddlewareOptions extends VerifyOptions {
-  /** Required ACR URN(s). Token is accepted if its ACR meets the highest in the list. */
-  acrValues?: AcrUrn[];
-  /** Reject if the user's `auth_time` is older than this many seconds. */
-  maxAgeSeconds?: number;
-  /**
-   * Custom token extractor. Receives the raw request, returns the JWT string
-   * (or null to trigger a 401). Default: Bearer token from `Authorization` header.
-   */
-  tokenExtractor?: (req: unknown) => string | null;
-  /** Custom error responder. Default: JSON `{ error, code }` with a sensible status. */
-  onError?: (err: Error, req: unknown, res: unknown) => void;
+  /** Raw appraisal claim bag, for consumers that need fields the SDK doesn't model. */
+  raw: Record<string, unknown>;
 }

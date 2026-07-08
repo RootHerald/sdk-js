@@ -104,7 +104,6 @@ const verifyReq = {
   challengeId: "c-123",
   evidence: { quote: {} } as unknown, // EvidenceBlob is opaque (unknown)
   policy: "rootherald:builtin:strict-hardware",
-  returnToken: true,
 } satisfies VerifyAttestationRequest;
 
 // Reference the bindings so `noUnusedLocals`-style checks never trip and the

@@ -10,21 +10,16 @@
 export type {
   AcrUrn,
   AmrValue,
-  AttestationTokenClaims,
   AttestationType,
   EarStatus,
-  EarTrustworthinessVector,
   Platform,
-  RootHeraldDeviceClaims,
   Verdict,
 } from "./eat.js";
 
 export type {
   AttestationVerdict,
   DeviceVerdict,
-  RequireAttestationMiddlewareOptions,
   TrustworthinessVector,
-  VerifyOptions,
 } from "./sdk-api.js";
 
 export type {

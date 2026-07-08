@@ -1,7 +1,7 @@
 {
   "name": "@rootherald/node",
   "version": "0.1.0-alpha.7",
-  "description": "Node.js server SDK for Root Herald \u2014 verify device-attestation JWTs and gate requests with attestation middleware",
+  "description": "Node.js server SDK for Root Herald \u2014 server-to-server Background-Check client for device attestation",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -27,8 +27,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@rootherald/contracts": "workspace:*",
-    "jose": "^5.9.0"
+    "@rootherald/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

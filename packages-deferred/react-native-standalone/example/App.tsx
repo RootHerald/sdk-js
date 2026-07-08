@@ -33,8 +33,10 @@ import {
 
 const DEFAULT_ENDPOINT =
   process.env.EXPO_PUBLIC_ROOTHERALD_ENDPOINT ?? 'https://rootherald.io';
-const PUBLISHABLE_KEY =
-  process.env.EXPO_PUBLIC_ROOTHERALD_KEY ?? 'pub_demo_REPLACE_ME';
+// Keyless client — holds no Root Herald key; it posts opaque device
+// evidence to your backend, which relays to Root Herald with rh_sk_.
+const APP_ID =
+  process.env.EXPO_PUBLIC_ROOTHERALD_APP_ID ?? 'your-app-id';
 
 type Mode = 'direct' | 'custom-domain' | 'proxy';
 
@@ -61,7 +63,7 @@ export default function App() {
   );
 
   const client = useMemo(
-    () => getOrCreateSharedClient({ apiKey: PUBLISHABLE_KEY, endpoint }),
+    () => getOrCreateSharedClient({ apiKey: APP_ID, endpoint }),
     [endpoint],
   );
 

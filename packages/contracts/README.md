@@ -16,10 +16,10 @@ npm install @rootherald/contracts
 
 ## What's in here
 
-- **EAT / claim types**: `AttestationTokenClaims`, `RootHeraldDeviceClaims`,
-  `AcrUrn`, `EarTrustworthinessVector`, `Platform`, `Verdict`, etc.
-- **SDK API types**: `AttestationVerdict`, `DeviceVerdict`, `VerifyOptions`,
-  `RequireAttestationMiddlewareOptions`.
+- **Attestation enums**: `AcrUrn`, `AmrValue`, `EarStatus`, `AttestationType`,
+  `Platform`, `Verdict`.
+- **SDK API types**: `AttestationVerdict`, `DeviceVerdict`,
+  `TrustworthinessVector`.
 - **Background-Check wire types**: `ChallengeRequest` / `ChallengeResponse`,
   `EvidenceBlob`, `VerifyAttestationRequest` / `VerifyAttestationResponse`.
 - **Client ABI 2.0 enroll blobs** (client-neutral): `EnrollRequestBlob`,

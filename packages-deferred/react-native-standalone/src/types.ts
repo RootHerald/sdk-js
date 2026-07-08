@@ -14,8 +14,11 @@ export type Verdict = 'allow' | 'warn' | 'deny';
 /** Configuration for constructing a {@link RootHeraldClient}. */
 export interface RootHeraldOptions {
   /**
-   * Publishable API key, e.g. `pub_xxx` or `rh_pk_live_xxx`.
-   * Safe to embed in shipped app binaries — it carries no spend authority.
+   * Public app identifier used to tag evidence submissions to your own
+   * backend. The client is keyless — it holds no Root Herald key of any
+   * kind and never sees your secret `rh_sk_` key. It collects opaque device
+   * evidence and hands it to your backend, which relays to Root Herald
+   * server-side. Safe to embed in shipped app binaries.
    */
   apiKey: string;
 

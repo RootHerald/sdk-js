@@ -11,7 +11,7 @@
  *                        SIGNALS, never a verdict.
  *
  * BOUNDARY: this package is KEYLESS. The browser holds NO RootHerald key
- * (neither `rh_sk_` nor `rh_pk_`) and opens NO socket to RootHerald. Every action
+ * and opens NO socket to RootHerald. Every action
  * is a local TPM operation; opaque blobs cross the bridge and are relayed to/from
  * RootHerald by the EMBEDDER's backend (a server SDK such as @rootherald/node,
  * which holds `rh_sk_`). No secret, no verdict, no RootHerald network call ever

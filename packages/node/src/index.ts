@@ -1,15 +1,9 @@
 /**
  * @rootherald/node — Node.js server SDK for RootHerald device attestation.
  *
- * The 80% API is one call:
- *   import { verifyAttestationToken } from "@rootherald/node";
- *   const verdict = await verifyAttestationToken(token, { issuer, audience });
- *
- * For Express-style apps, `requireAttestation` is the gating middleware.
- *
- * For the server -> server attestation flow (the customer's server relays a
- * client-collected opaque blob to RootHerald with its `rh_sk_` secret key), use
- * the `RootHerald` client:
+ * The SDK is the server -> server Background-Check client: the customer's server
+ * relays a client-collected opaque blob to RootHerald with its `rh_sk_` secret
+ * key and gets back a verdict. Use the `RootHerald` client:
  *   const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! });
  *   const { challengeId, nonce } = await rh.issueChallenge();
  *   const verdict = await rh.verify(evidence, { challengeId });
@@ -23,8 +17,6 @@
  *   }                                                         // 409 → already bound, skip
  */
 
-export { verifyAttestationToken } from "./verify.js";
-export { requireAttestation } from "./requireAttestation.js";
 export { RootHerald } from "./client.js";
 
 export type {
@@ -35,9 +27,7 @@ export type {
 } from "./client.js";
 
 export {
-  InvalidTokenError,
   RootHeraldError,
-  TokenExpiredError,
 } from "@rootherald/contracts";
 export {
   ChallengeError,
@@ -62,12 +52,10 @@ export type {
   EnrollRequestBlob,
   EvidenceBlob,
   Platform,
-  RequireAttestationMiddlewareOptions,
   TrustworthinessVector,
   Verdict,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
-  VerifyOptions,
 } from "@rootherald/contracts";
 
 // The enroll-relay result union and activate-leg terminal response shape are
