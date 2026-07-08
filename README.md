@@ -10,7 +10,7 @@ These three packages are published and maintained:
 |---|---|---|
 | [`@rootherald/contracts`](./packages/contracts) | **Shared** contract / type layer (EAT claims, wire shapes, error classes) used by both the client and the server SDK. Also exposes server-context errors at `@rootherald/contracts/server`. | Shared (client + server) |
 | [`@rootherald/browser`](./packages/browser) | **Client**: collects an opaque device-evidence blob (and runs cold-start client detection) via the Root Herald browser extension. Keyless — no `rh_sk_` secret, no verdict. | Browsers / page code |
-| [`@rootherald/node`](./packages/node) | **Server**: verify attestation JWTs against the Root Herald JWKS and run the server→server Background-Check (`rh_sk_` secret + verdict live here). | Node.js backends |
+| [`@rootherald/node`](./packages/node) | **Server**: run the server→server Background-Check (`rh_sk_` secret + verdict live here). | Node.js backends |
 
 The browser package only **collects** evidence; **verification and the `rh_sk_`
 secret live exclusively in a server SDK** (`@rootherald/node`, and the other
@@ -26,7 +26,7 @@ while the core API stabilizes. They live under
 ## Install
 
 ```bash
-# Server: verify tokens / run Background-Check
+# Server: run the Background-Check
 npm i @rootherald/node
 
 # Client: collect device evidence from a web page
