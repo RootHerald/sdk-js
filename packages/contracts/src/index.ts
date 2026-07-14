@@ -72,4 +72,6 @@ export type {
   BridgeAttestQuery,
   BridgeDeepLinkParams,
   MobileAppVerifyRequest,
+  ResolveBridgeDeepLinkOptions,
 } from "./mobile-bridge";
+export { resolveBridgeDeepLink } from "./mobile-bridge";
