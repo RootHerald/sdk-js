@@ -65,3 +65,11 @@ export {
   /** @deprecated import from `@rootherald/contracts/server` */
   UnknownPolicyError,
 } from "./errors.js";
+
+// Mobile attestation bridge (browser-only customers, mobile users).
+export type {
+  TenantMobileConfig,
+  BridgeAttestQuery,
+  BridgeDeepLinkParams,
+  MobileAppVerifyRequest,
+} from "./mobile-bridge";
