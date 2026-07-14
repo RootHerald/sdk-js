@@ -513,3 +513,35 @@ describe("relayActivate", () => {
     expect(err).toBeInstanceOf(ChallengeError);
   });
 });
+
+describe("verifyMobileEvidence (mobile bridge)", () => {
+  const appVerifyBody = {
+    challengeId: "chal-1",
+    evidence: { iosAttestation: { attestationObject: "b64cbor", keyId: "b64key" } },
+  };
+
+  it("brokers verify() and returns the verdict", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict(), assuranceClaimsMet: ["real-device"] });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const result = await rh.verifyMobileEvidence(appVerifyBody);
+    expect(result.device.verdict).toBe("pass");
+    // Called the verify endpoint with the challengeId + iosAttestation evidence.
+    const [, init] = (fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const sent = JSON.parse((init as { body: string }).body);
+    expect(sent.challengeId).toBe("chal-1");
+    expect(sent.evidence.iosAttestation.keyId).toBe("b64key");
+  });
+
+  it("rejects a body missing challengeId", async () => {
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, {}) });
+    const err = await rh.verifyMobileEvidence({ ...appVerifyBody, challengeId: "" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldError);
+  });
+
+  it("rejects a body missing iosAttestation fields", async () => {
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, {}) });
+    const bad = { challengeId: "c", evidence: { iosAttestation: { attestationObject: "x" } } } as never;
+    const err = await rh.verifyMobileEvidence(bad).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidEvidenceError);
+  });
+});

@@ -14,6 +14,7 @@ import type {
   AttestationVerdict,
   ChallengeResponse,
   EvidenceBlob,
+  MobileAppVerifyRequest,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "@rootherald/contracts";
@@ -218,6 +219,45 @@ export class RootHerald {
       result.enrollmentRequired = data.enrollmentRequired;
     }
     return result;
+  }
+
+  /**
+   * Handle the POST the RootHerald companion app makes to your registered mobile
+   * `appVerifyUrl` (the mobile-bridge flow, for browser-only customers). The app
+   * sends `{ challengeId, evidence: { iosAttestation: {...} } }`; this validates
+   * that shape and brokers the metered `verify()` with your `rh_sk_` — exactly
+   * like desktop. Store the returned verdict keyed by `challengeId` so the page
+   * that reopens can poll it.
+   *
+   * ```ts
+   * // POST /api/rootherald/app-verify  (your registered appVerifyUrl)
+   * const result = await rh.verifyMobileEvidence(req.body);
+   * await store.put(req.body.challengeId, result);
+   * res.json({ ok: true });
+   * ```
+   */
+  async verifyMobileEvidence(
+    body: MobileAppVerifyRequest,
+    opts?: Pick<AttestOptions, "policy">,
+  ): Promise<AttestResult> {
+    if (!body || typeof body.challengeId !== "string" || !body.challengeId) {
+      throw new RootHeraldError(
+        "verifyMobileEvidence() requires a body with `challengeId`",
+        "MISSING_CHALLENGE_ID",
+      );
+    }
+    if (
+      !body.evidence?.iosAttestation ||
+      typeof body.evidence.iosAttestation.attestationObject !== "string" ||
+      typeof body.evidence.iosAttestation.keyId !== "string"
+    ) {
+      throw new InvalidEvidenceError(
+        "verifyMobileEvidence() body is missing evidence.iosAttestation.{attestationObject,keyId}",
+      );
+    }
+    const attestOpts: AttestOptions = { challengeId: body.challengeId };
+    if (opts?.policy !== undefined) attestOpts.policy = opts.policy;
+    return this.verify(body.evidence, attestOpts);
   }
 
   /**
