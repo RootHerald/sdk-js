@@ -69,9 +69,7 @@ export {
 // Mobile attestation bridge (browser-only customers, mobile users).
 export type {
   TenantMobileConfig,
-  BridgeAttestQuery,
-  BridgeDeepLinkParams,
   MobileAppVerifyRequest,
-  ResolveBridgeDeepLinkOptions,
+  BuildMobileAttestLinkOptions,
 } from "./mobile-bridge";
-export { resolveBridgeDeepLink } from "./mobile-bridge";
+export { buildMobileAttestLink } from "./mobile-bridge";

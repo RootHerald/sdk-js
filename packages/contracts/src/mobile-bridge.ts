@@ -32,36 +32,9 @@ export interface TenantMobileConfig {
 }
 
 /**
- * Query params the customer's page sends to the bridge to start a mobile
- * attestation. The bridge resolves `tenant` to that tenant's
- * {@link TenantMobileConfig}; the page never supplies destination URLs.
- * `GET https://bridge.rootherald.io/attest?tenant=<id>&challengeId=<id>`
- */
-export interface BridgeAttestQuery {
-  /** The customer's tenant id / public tenant handle. */
-  tenant: string;
-  /** The single-use challenge id the customer's backend already minted via RootHerald. */
-  challengeId: string;
-}
-
-/**
- * The Universal Link the bridge builds and opens (the companion app parses it).
- * `verify` and `return` are the tenant's REGISTERED urls — not caller-supplied.
- * `https://bridge.rootherald.io/attest?challengeId=…&nonce=…&verify=…&return=…`
- */
-export interface BridgeDeepLinkParams {
-  challengeId: string;
-  /** Standard-base64 challenge nonce for the app's App Attest client. */
-  nonce: string;
-  /** The registered app-verify url (base64url) — where the app POSTs evidence. */
-  verify: string;
-  /** The registered return url (base64url) — where the app reopens Safari. */
-  return: string;
-}
-
-/**
- * The body the companion app POSTs to the customer's registered `appVerifyUrl`.
- * Identical shape to the desktop evidence blob's iOS branch.
+ * The body the RootHerald bridge forwards to the customer's registered
+ * `appVerifyUrl` (identical shape to the desktop evidence blob's iOS branch).
+ * The customer's backend hands this to {@link RootHerald.verifyMobileEvidence}.
  */
 export interface MobileAppVerifyRequest {
   challengeId: string;
@@ -75,9 +48,13 @@ export interface MobileAppVerifyRequest {
   };
 }
 
-/** What {@link resolveBridgeDeepLink} needs to ask the bridge for a deep link. */
-export interface ResolveBridgeDeepLinkOptions {
-  /** The RootHerald bridge base URL, e.g. `https://bridge.rootherald.io`. */
+/** Inputs to {@link buildMobileAttestLink}. */
+export interface BuildMobileAttestLinkOptions {
+  /**
+   * The RootHerald bridge base URL, e.g. `https://bridge.rootherald.io`. This is
+   * the host the companion app opens from AND posts evidence to — it must be a
+   * DIFFERENT host than the page (iOS won't hand a same-host link to an app).
+   */
   bridgeBaseUrl: string;
   /** The customer's tenant slug / public handle (as registered with RootHerald). */
   tenant: string;
@@ -85,52 +62,33 @@ export interface ResolveBridgeDeepLinkOptions {
   challengeId: string;
   /** The challenge nonce (as returned alongside `challengeId`). */
   nonce: string;
-  /** Override `fetch` (defaults to the global). Handy for tests / non-browser hosts. */
-  fetch?: typeof fetch;
-  /** Optional AbortSignal to cancel the request. */
-  signal?: AbortSignal;
 }
 
 /**
- * Browser/mobile helper: ask the RootHerald bridge for the companion-app deep
- * link to render as a tap target. Zero-dependency and isomorphic (uses the
- * global `fetch`). The page **must render the returned `deepLink` in a real
- * `<a href>` the user taps** — iOS only fires a Universal Link on a genuine tap,
- * never a redirect or JS navigation.
+ * Build the Universal Link that opens the RootHerald companion app. It carries
+ * only the tenant + challenge — **no customer URLs**. The app collects App Attest
+ * evidence and POSTs it to the fixed bridge endpoint (`<bridgeBaseUrl>/evidence`);
+ * the bridge forwards it to your server-side-registered backend, which brokers the
+ * metered verify with your key. Because the app only ever posts to RootHerald, a
+ * page can't redirect the evidence elsewhere.
  *
- * The bridge resolves `tenant` to that tenant's server-side-registered verify/
- * return URLs; the page never supplies a destination, so this can't be abused as
- * an open redirect.
+ * The page **must render the returned link in a real `<a href>` the user taps** —
+ * iOS only fires a Universal Link on a genuine tap, never a redirect or JS nav.
  *
  * ```ts
- * const { deepLink } = await resolveBridgeDeepLink({
+ * anchorEl.href = buildMobileAttestLink({
  *   bridgeBaseUrl: "https://bridge.rootherald.io",
  *   tenant: "acme",
  *   challengeId, nonce,
  * });
- * anchorEl.href = deepLink; // user taps → Root Herald app opens
  * ```
  */
-export async function resolveBridgeDeepLink(
-  opts: ResolveBridgeDeepLinkOptions,
-): Promise<{ deepLink: string }> {
-  const doFetch = opts.fetch ?? globalThis.fetch;
-  if (typeof doFetch !== "function") {
-    throw new Error("resolveBridgeDeepLink: no fetch available; pass opts.fetch");
-  }
+export function buildMobileAttestLink(opts: BuildMobileAttestLinkOptions): string {
   const base = opts.bridgeBaseUrl.replace(/\/+$/, "");
-  const url =
-    `${base}/link?tenant=${encodeURIComponent(opts.tenant)}` +
-    `&challengeId=${encodeURIComponent(opts.challengeId)}` +
-    `&nonce=${encodeURIComponent(opts.nonce)}`;
-
-  const res = await doFetch(url, { method: "GET", signal: opts.signal });
-  if (!res.ok) {
-    throw new Error(`resolveBridgeDeepLink: bridge returned HTTP ${res.status}`);
-  }
-  const body = (await res.json()) as { deepLink?: unknown };
-  if (typeof body?.deepLink !== "string") {
-    throw new Error("resolveBridgeDeepLink: bridge response missing deepLink");
-  }
-  return { deepLink: body.deepLink };
+  const params = new URLSearchParams({
+    tenant: opts.tenant,
+    challengeId: opts.challengeId,
+    nonce: opts.nonce,
+  });
+  return `${base}/try/attest?${params.toString()}`;
 }
