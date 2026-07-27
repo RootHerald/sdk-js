@@ -42,6 +42,13 @@ export interface ChallengeResponse {
  */
 export type EvidenceBlob = unknown;
 
+/**
+ * How much device detail the caller is asking the appraisal to disclose,
+ * from the least-revealing pass/fail token up to the full claim set. Omit to
+ * accept the policy's default disclosure ceiling.
+ */
+export type RequestedDisclosureClass = "verdict" | "pseudonymous" | "derived" | "full";
+
 /** Request body for `POST /api/v1/attestations/verify` (C2). */
 export interface VerifyAttestationRequest {
   /** The single-use challenge id returned by C1. */
@@ -54,6 +61,11 @@ export interface VerifyAttestationRequest {
    * (unknown/foreign name => 422).
    */
   policy?: string;
+  /**
+   * Optional disclosure ceiling the caller is requesting for this appraisal.
+   * Omitted => the resolved policy's default disclosure applies.
+   */
+  requestedDisclosureClass?: RequestedDisclosureClass;
 }
 
 /** Response body (200) for `POST /api/v1/attestations/verify` (C2). */

@@ -15,6 +15,7 @@ import type {
   ChallengeResponse,
   EvidenceBlob,
   MobileAppVerifyRequest,
+  RequestedDisclosureClass,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "@rootherald/contracts";
@@ -36,7 +37,7 @@ import type {
 } from "@rootherald/contracts/server";
 
 /** Production RootHerald API base URL. */
-const DEFAULT_BASE_URL = "https://api.rootherald.io";
+const DEFAULT_BASE_URL = "https://rootherald.io";
 
 /** RootHerald API keys are `rh_sk_`-prefixed secret keys, used server-side as a Bearer token. */
 const SECRET_KEY_PREFIX = "rh_sk_";
@@ -72,6 +73,12 @@ export interface AttestOptions {
    * `rootherald:builtin:*` name. Unknown/foreign names fail closed (422).
    */
   policy?: string;
+  /**
+   * Optional disclosure ceiling to request for this appraisal
+   * (`"verdict" | "pseudonymous" | "derived" | "full"`). Omitted => the
+   * resolved policy's default disclosure applies.
+   */
+  requestedDisclosureClass?: RequestedDisclosureClass;
 }
 
 /**
@@ -195,6 +202,9 @@ export class RootHerald {
       evidence,
     };
     if (opts.policy !== undefined) body.policy = opts.policy;
+    if (opts.requestedDisclosureClass !== undefined) {
+      body.requestedDisclosureClass = opts.requestedDisclosureClass;
+    }
 
     const data = await this.post<VerifyAttestationResponse>(
       "/api/v1/attestations/verify",

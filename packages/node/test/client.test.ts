@@ -145,7 +145,7 @@ describe("attest", () => {
     await expect(rh.attest({ blob: 1 }, {})).rejects.toThrow(RootHeraldError);
   });
 
-  it("defaults baseUrl to the canonical api.rootherald.io host", async () => {
+  it("defaults baseUrl to the canonical rootherald.io host", async () => {
     const fetchMock = mockFetch(200, {
       challengeId: "c",
       nonce: "n",
@@ -155,7 +155,7 @@ describe("attest", () => {
     await rh.createChallenge();
 
     const [url] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("https://api.rootherald.io/api/v1/attestations/challenge");
+    expect(url).toBe("https://rootherald.io/api/v1/attestations/challenge");
   });
 
   it("passes cohort fields on verdict.device through verbatim", async () => {
@@ -328,6 +328,29 @@ describe("verify (ABI 2.0 name for attest)", () => {
     const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, {}) });
     // @ts-expect-error intentionally omitting challengeId
     await expect(rh.verify({ blob: 1 }, {})).rejects.toThrow(RootHeraldError);
+  });
+
+  it("sends requestedDisclosureClass in the body when supplied", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    await rh.verify(
+      { blob: 1 },
+      { challengeId: "chal-1", requestedDisclosureClass: "pseudonymous" },
+    );
+
+    const [, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse(init.body).requestedDisclosureClass).toBe("pseudonymous");
+  });
+
+  it("omits requestedDisclosureClass from the body when not supplied", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
+    const rh = new RootHerald({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    const [, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect("requestedDisclosureClass" in JSON.parse(init.body)).toBe(false);
   });
 
   it("attest is a thin alias that delegates to verify", async () => {

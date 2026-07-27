@@ -59,6 +59,42 @@ jobs:
           echo "GITHUB_REF_NAME:         $GITHUB_REF_NAME"
           echo "GITHUB_EVENT_NAME:       $GITHUB_EVENT_NAME"
 
+      # `npm publish` (unlike `pnpm publish`) does NOT rewrite the workspace:
+      # protocol, so a literal "@rootherald/contracts":"workspace:*" would ship
+      # in the tarball and make the package uninstallable
+      # (npm ERR Unsupported URL Type "workspace:"). Materialize every intra-
+      # workspace dep to its concrete published version before publishing.
+      # Publish order below (glob: browser, contracts, node) already publishes
+      # a dependency before its dependents.
+      - name: Materialize workspace: deps to concrete versions
+        run: |
+          node -e '
+            const fs = require("fs");
+            const dirs = fs.readdirSync("packages");
+            const ver = {};
+            for (const d of dirs) {
+              const pj = `packages/${d}/package.json`;
+              if (fs.existsSync(pj)) ver[JSON.parse(fs.readFileSync(pj, "utf8")).name] = JSON.parse(fs.readFileSync(pj, "utf8")).version;
+            }
+            for (const d of dirs) {
+              const pj = `packages/${d}/package.json`;
+              if (!fs.existsSync(pj)) continue;
+              const j = JSON.parse(fs.readFileSync(pj, "utf8"));
+              let changed = false;
+              for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+                const deps = j[field];
+                if (!deps) continue;
+                for (const name of Object.keys(deps)) {
+                  if (typeof deps[name] === "string" && deps[name].startsWith("workspace:") && ver[name]) {
+                    deps[name] = ver[name]; // pin exact (prerelease-safe, unlike ^ ranges)
+                    changed = true;
+                  }
+                }
+              }
+              if (changed) { fs.writeFileSync(pj, JSON.stringify(j, null, 2) + "\n"); console.log("materialized workspace deps in", j.name); }
+            }
+          '
+
       - name: Publish to npm with provenance
         run: |
           # Determine dist-tag from semver: 'alpha'/'beta'/'rc' from the
