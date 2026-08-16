@@ -1,7 +1,7 @@
 {
   "name": "@rootherald/node",
   "version": "0.1.0-alpha.7",
-  "description": "Node.js server SDK for Root Herald \u2014 server-to-server Background-Check client for device attestation",
+  "description": "Node.js server SDK for Root Herald — server-to-server Background-Check client for device attestation",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
