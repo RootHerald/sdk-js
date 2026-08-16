@@ -18,10 +18,11 @@ server SDKs at [github.com/RootHerald](https://github.com/RootHerald)).
 
 ### Deferred
 
-`@rootherald/js` (vanilla) and the `@rootherald/react` / `@rootherald/vue` /
-`@rootherald/angular` / `@rootherald/react-native` adapters are **deferred**
-while the core API stabilizes. They live under
-[`packages-deferred/`](./packages-deferred) and are not published yet.
+Framework adapters (`@rootherald/react`, `/vue`, `/angular`, `/react-native`)
+are **not shipping**. Earlier drafts lived in this repo under
+`packages-deferred/` and were removed — they are recoverable from git history if
+one is picked up. This repo contains only what is published or about to be:
+`@rootherald/node`, `@rootherald/contracts`, `@rootherald/browser`.
 
 ## Install
 
