@@ -118,3 +118,29 @@ jobs:
               (cd "$pkg_dir" && npm publish --provenance --access public --tag "$dist_tag")
             fi
           done
+
+      # While pre-1.0 every release is a prerelease, so the step above always
+      # publishes under `alpha` and never moves `latest`. npm sets `latest` on a
+      # package's FIRST publish and leaves it there — which left it pinned to
+      # 0.1.0-alpha.1 while alpha.6 was current, so a plain `npm install` served
+      # a five-version-old SDK.
+      #
+      # Non-fatal on purpose: npm's OIDC exchange issues a token scoped for
+      # publishing, and it is not confirmed that it also authorises the dist-tag
+      # endpoint. If this step fails, the release still succeeded — move the tag
+      # manually with `npm dist-tag add <pkg>@<version> latest --otp=<code>`.
+      # Delete this step at 1.0, when a bare `vX.Y.Z` tag makes `latest` correct
+      # on its own.
+      - name: Point latest at this prerelease (pre-1.0 only)
+        if: startsWith(github.ref_name, 'v0.')
+        continue-on-error: true
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for pkg_dir in packages/*/; do
+            [ -f "$pkg_dir/package.json" ] || continue
+            grep -q '"private": *true' "$pkg_dir/package.json" && continue
+            name=$(node -p "require('./$pkg_dir/package.json').name")
+            echo "===> dist-tag $name@$version latest"
+            npm dist-tag add "$name@$version" latest \
+              || echo "::warning::dist-tag failed for $name — move it manually"
+          done
