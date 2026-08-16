@@ -97,12 +97,32 @@ jobs:
 
       - name: Publish to npm with provenance
         run: |
-          # Determine dist-tag from semver: 'alpha'/'beta'/'rc' from the
-          # prerelease suffix, otherwise 'latest'.
+          # Determine the dist-tag to publish under.
+          #
+          # `npm publish --tag X` sets the tag AT PUBLISH TIME and works fine
+          # under OIDC. A separate `npm dist-tag add` does NOT — the trusted-
+          # publishing token is scoped to publish and the endpoint answers E401.
+          # So the tag has to be chosen here; there is no second chance later
+          # without a long-lived credential.
+          #
+          # While pre-1.0 EVERY release is a prerelease. Mapping those to
+          # `alpha` leaves `latest` wherever npm first pinned it — which is how
+          # it ended up stuck on 0.1.0-alpha.1 while alpha.9 was current,
+          # serving eight-version-old code to a plain `npm install`. For a
+          # package with no stable release, the newest prerelease IS the latest
+          # release, so publish it as such.
+          #
+          # At 1.0 this inverts on its own: a bare vX.Y.Z tag takes the else
+          # branch, `latest` becomes the stable line, and prereleases published
+          # from a v1.1.0-beta.1 tag correctly go to `beta` instead.
           tag_ref="${GITHUB_REF_NAME#v}"
           if [[ "$tag_ref" == *-* ]]; then
-            dist_tag="${tag_ref#*-}"
-            dist_tag="${dist_tag%%.*}"
+            if [[ "$tag_ref" == 0.* ]]; then
+              dist_tag="latest"      # pre-1.0: newest prerelease is the release
+            else
+              dist_tag="${tag_ref#*-}"
+              dist_tag="${dist_tag%%.*}"
+            fi
           else
             dist_tag="latest"
           fi
@@ -140,28 +160,7 @@ jobs:
           done
           exit $failed
 
-      # While pre-1.0 every release is a prerelease, so the step above always
-      # publishes under `alpha` and never moves `latest`. npm sets `latest` on a
-      # package's FIRST publish and leaves it there — which left it pinned to
-      # 0.1.0-alpha.1 while alpha.6 was current, so a plain `npm install` served
-      # a five-version-old SDK.
-      #
-      # Non-fatal on purpose: npm's OIDC exchange issues a token scoped for
-      # publishing, and it is not confirmed that it also authorises the dist-tag
-      # endpoint. If this step fails, the release still succeeded — move the tag
-      # manually with `npm dist-tag add <pkg>@<version> latest --otp=<code>`.
-      # Delete this step at 1.0, when a bare `vX.Y.Z` tag makes `latest` correct
-      # on its own.
-      - name: Point latest at this prerelease (pre-1.0 only)
-        if: startsWith(github.ref_name, 'v0.')
-        continue-on-error: true
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          for pkg_dir in packages/*/; do
-            [ -f "$pkg_dir/package.json" ] || continue
-            grep -q '"private": *true' "$pkg_dir/package.json" && continue
-            name=$(node -p "require('./$pkg_dir/package.json').name")
-            echo "===> dist-tag $name@$version latest"
-            npm dist-tag add "$name@$version" latest \
-              || echo "::warning::dist-tag failed for $name — move it manually"
-          done
+      # A post-publish `npm dist-tag add` step used to live here as a fallback.
+      # Removed: it always failed with E401 because the OIDC token is scoped to
+      # publish, and it is unnecessary now that the publish step chooses the
+      # right tag directly. Publishing is fully automated with no credential.
