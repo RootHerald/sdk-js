@@ -72,5 +72,5 @@ export type {
   TenantMobileConfig,
   MobileAppVerifyRequest,
   BuildMobileAttestLinkOptions,
-} from "./mobile-bridge";
-export { buildMobileAttestLink } from "./mobile-bridge";
+} from "./mobile-bridge.js";
+export { buildMobileAttestLink } from "./mobile-bridge.js";
