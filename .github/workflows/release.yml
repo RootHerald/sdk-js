@@ -66,7 +66,7 @@ jobs:
       # workspace dep to its concrete published version before publishing.
       # Publish order below (glob: browser, contracts, node) already publishes
       # a dependency before its dependents.
-      - name: Materialize workspace: deps to concrete versions
+      - name: "Materialize workspace: deps to concrete versions"
         run: |
           node -e '
             const fs = require("fs");
