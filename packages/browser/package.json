@@ -1,6 +1,6 @@
 {
   "name": "@rootherald/browser",
-  "version": "0.1.0-alpha.8",
+  "version": "0.1.0-alpha.9",
   "description": "Browser SDK for Root Herald — brokers device-evidence collection through the RootHerald browser extension and exposes cold-start client detection",
   "type": "module",
   "main": "./dist/index.cjs",

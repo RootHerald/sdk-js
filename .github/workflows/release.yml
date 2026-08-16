@@ -111,13 +111,34 @@ jobs:
 
           # Use npm publish directly (not pnpm) so OIDC env propagation is
           # straightforward. Loop over each published-eligible package.
+          #
+          # Trusted publishing CANNOT bootstrap a package that does not exist on
+          # npm yet: there is no package page to attach a trusted publisher to,
+          # so the registry answers `404 PUT` regardless of a valid OIDC token.
+          # A never-published package therefore needs one manual, authenticated
+          # `npm publish` before CI can ever take over.
+          #
+          # Skip those rather than aborting, so one un-bootstrapped package
+          # cannot block every other package in the workspace from shipping —
+          # which is exactly what happened at v0.1.0-alpha.8.
+          failed=0
           for pkg_dir in packages/*/; do
-            if [ -f "$pkg_dir/package.json" ] && \
-               ! grep -q '"private": *true' "$pkg_dir/package.json"; then
-              echo "===> publishing $pkg_dir"
-              (cd "$pkg_dir" && npm publish --provenance --access public --tag "$dist_tag")
+            [ -f "$pkg_dir/package.json" ] || continue
+            grep -q '"private": *true' "$pkg_dir/package.json" && continue
+            name=$(node -p "require('./$pkg_dir/package.json').name")
+
+            if ! npm view "$name" version >/dev/null 2>&1; then
+              echo "::warning::$name has never been published. Trusted publishing cannot create it — run 'npm publish --access public' once from an authenticated account, then CI takes over."
+              continue
+            fi
+
+            echo "===> publishing $name"
+            if ! (cd "$pkg_dir" && npm publish --provenance --access public --tag "$dist_tag"); then
+              echo "::error::publish failed for $name"
+              failed=1
             fi
           done
+          exit $failed
 
       # While pre-1.0 every release is a prerelease, so the step above always
       # publishes under `alpha` and never moves `latest`. npm sets `latest` on a
