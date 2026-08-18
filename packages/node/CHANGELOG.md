@@ -2,6 +2,25 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## Unreleased
+
+### Note on the entries below
+
+`requireAttestation` and `verifyAttestationToken` **no longer exist**. They were
+part of the offline / portable-token surface (verify a signed EAT locally against
+a public JWKS), which was removed when the SDK moved to the Background-Check
+model: your backend calls `verify` server-to-server and gets a verdict back, so
+there is no token for the SDK to check.
+
+The 0.1.0-alpha.7 entry is left in place because a changelog is a historical
+record, but it describes an API this package has not shipped for some time — and
+because `CHANGELOG.md` is in `files`, it goes out in the npm tarball, where a
+reader would otherwise go looking for functions that are not there. Its closing
+claim that "all other option names and function signatures are stable" has not
+been true since that surface was removed.
+
+The current API is documented in `README.md`.
+
 ## 0.1.0-alpha.7
 
 ### Security (breaking behavior change)
