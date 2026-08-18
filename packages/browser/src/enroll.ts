@@ -68,7 +68,14 @@ export interface EnrollOptions {
 }
 
 export interface EnrollResult {
-  /** The enrolled device's stable id (the EAT `ueid`). */
+  /**
+   * Internal enrolment handle for the device.
+   *
+   * NOT the EAT `ueid`, and not equal to it. The `ueid` a verdict returns is
+   * scoped to the calling tenant, so it differs from this value (and differs
+   * between tenants for the same machine). Key your own tables on
+   * `verdict.device.ueid`, not on this.
+   */
   deviceId: string;
   /**
    * `true` when the device was already bound (the backend's relay short-circuited
