@@ -42,6 +42,43 @@ const DEFAULT_BASE_URL = "https://rootherald.io";
 /** RootHerald API keys are `rh_sk_`-prefixed secret keys, used server-side as a Bearer token. */
 const SECRET_KEY_PREFIX = "rh_sk_";
 
+/**
+ * Reject a base URL that would put the `rh_sk_` secret on the wire in the clear.
+ *
+ * The secret rides in an Authorization header on every request and is
+ * full-privilege, so an `http://` or scheme-less base URL hands it to anyone on
+ * the path. A typo is enough, and nothing downstream notices, because the
+ * request itself still succeeds.
+ *
+ * Loopback is excepted so the local docker stack keeps working over http.
+ */
+function requireSecureBaseUrl(baseUrl: string): string {
+  const trimmed = String(baseUrl).replace(/\/+$/, "");
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new RootHeraldError(
+      `baseUrl must be an absolute https URL (got ${JSON.stringify(trimmed)})`,
+      "INVALID_BASE_URL",
+    );
+  }
+
+  const isLoopback =
+    url.hostname === "localhost" ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "[::1]" ||
+    url.hostname === "::1";
+
+  if (url.protocol === "https:" || isLoopback) return trimmed;
+
+  throw new RootHeraldError(
+    `baseUrl must use https (got ${JSON.stringify(trimmed)})`,
+    "INVALID_BASE_URL",
+  );
+}
+
 /** Options for constructing a {@link RootHerald} server client. */
 export interface RootHeraldClientOptions {
   /**
@@ -132,7 +169,7 @@ export class RootHerald {
       );
     }
     this.secretKey = key;
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = requireSecureBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
 
     const f = options.fetch ?? globalThis.fetch;
     if (typeof f !== "function") {
