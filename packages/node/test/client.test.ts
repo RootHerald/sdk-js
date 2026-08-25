@@ -568,3 +568,29 @@ describe("verifyMobileEvidence (mobile bridge)", () => {
     expect(err).toBeInstanceOf(InvalidEvidenceError);
   });
 });
+
+// The secret rides in an Authorization header on every request and is
+// full-privilege, so a base URL that is not https hands it to anyone on the
+// path. A typo is enough, and nothing downstream notices because the request
+// itself still succeeds.
+describe("baseUrl must not put the secret key in cleartext", () => {
+  it.each([
+    "http://api.example.test",
+    "http://rootherald.io",
+    "api.example.test",
+    "//api.example.test",
+    "",
+  ])("rejects %j", (baseUrl) => {
+    expect(() => new RootHerald({ secretKey: SK, baseUrl })).toThrow(RootHeraldError);
+  });
+
+  // Loopback stays usable so the local docker stack works over http.
+  it.each([
+    "https://api.example.test",
+    "http://localhost:8080",
+    "http://127.0.0.1:5000",
+    "http://[::1]:5000",
+  ])("accepts %j", (baseUrl) => {
+    expect(() => new RootHerald({ secretKey: SK, baseUrl })).not.toThrow();
+  });
+});
