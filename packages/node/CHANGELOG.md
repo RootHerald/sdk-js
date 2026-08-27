@@ -4,6 +4,22 @@ All notable changes to `@rootherald/node` are documented here.
 
 ## Unreleased
 
+### Breaking
+
+- `RootHerald` is now `RootHeraldClient`. The class name has to carry the
+  product because an import flattens it — `import { RootHerald }` gave no hint
+  which library it came from. The other server SDKs make the same change, so the
+  type has one name everywhere it is spelled out and is simply `Client` where a
+  namespace already supplies the product (`rootherald.Client`,
+  `RootHerald::Client`, `Rootherald\Client`).
+- `createChallenge` and `attest` are removed. They were aliases from the ABI 2.0
+  rename; use `issueChallenge` and `verify`. Both spellings posted to the same
+  endpoint with the same body, so nothing on the wire changes.
+- `CreateChallengeOptions` is now `IssueChallengeOptions`, matching the method it
+  belongs to.
+- `@rootherald/browser` drops `collectEvidence` and `CollectOptions`; use
+  `attest` and `AttestOptions`.
+
 ### Note on the entries below
 
 `requireAttestation` and `verifyAttestationToken` **no longer exist**. They were

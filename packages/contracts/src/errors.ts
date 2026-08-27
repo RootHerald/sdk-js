@@ -44,7 +44,7 @@ export class InvalidTokenError extends RootHeraldError {
 
 /**
  * Base class for errors returned by the server-side Background-Check API
- * (`RootHerald.createChallenge` / `RootHerald.attest`). Carries the HTTP
+ * (`RootHeraldClient.issueChallenge` / `RootHeraldClient.verify`). Carries the HTTP
  * `status` and, when the server provided one, a machine-readable `errorCode`
  * (e.g. `invalid_secret_key`, `unknown_policy`).
  */

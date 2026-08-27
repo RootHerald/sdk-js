@@ -3,8 +3,8 @@
  *
  * The SDK is the server -> server Background-Check client: the customer's server
  * relays a client-collected opaque blob to RootHerald with its `rh_sk_` secret
- * key and gets back a verdict. Use the `RootHerald` client:
- *   const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! });
+ * key and gets back a verdict. Use the `RootHeraldClient`:
+ *   const rh = new RootHeraldClient({ secretKey: process.env.RH_SECRET_KEY! });
  *   const { challengeId, nonce } = await rh.issueChallenge();
  *   const verdict = await rh.verify(evidence, { challengeId });
  *
@@ -17,12 +17,12 @@
  *   }                                                         // 409 → already bound, skip
  */
 
-export { RootHerald } from "./client.js";
+export { RootHeraldClient } from "./client.js";
 
 export type {
   AttestOptions,
   AttestResult,
-  CreateChallengeOptions,
+  IssueChallengeOptions,
   RootHeraldClientOptions,
 } from "./client.js";
 

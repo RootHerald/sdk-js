@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { attest, collectEvidence } from '../src/collect.js';
+import { attest } from '../src/collect.js';
 import {
   ExtensionMissingError,
   HostMissingError,
@@ -83,14 +83,3 @@ describe('attest', () => {
   });
 });
 
-describe('collectEvidence (deprecated alias)', () => {
-  it('still resolves with the evidence blob', async () => {
-    const win = new FakeWindow({
-      extensionPresent: true,
-      hostPresent: true,
-      evidence: { quote: 'q1', eventLog: 'el' },
-    });
-    const blob = await collectEvidence('nonce-abc', { ...FAST, win, challengeId: 'ch1' });
-    expect(blob).toEqual({ quote: 'q1', eventLog: 'el' });
-  });
-});

@@ -4,7 +4,7 @@
  * The customer's dumb client collects an opaque evidence blob (no keys, no
  * RootHerald contact) and hands it to the customer's own server. The server
  * uses this client, authenticated with its `rh_sk_` secret key, to:
- *   1. mint a relay-friendly nonce  (`createChallenge`)
+ *   1. mint a relay-friendly nonce  (`issueChallenge`)
  *   2. submit the evidence for appraisal and get a verdict  (`attest`)
  *
  * Network calls use the built-in global `fetch` (Node 18+) — no HTTP library.
@@ -95,15 +95,15 @@ export interface RootHeraldClientOptions {
   fetch?: typeof fetch;
 }
 
-/** Options for {@link RootHerald.createChallenge}. */
-export interface CreateChallengeOptions {
+/** Options for {@link RootHeraldClient.issueChallenge}. */
+export interface IssueChallengeOptions {
   /** Optional advisory hint identifying the device. */
   deviceHint?: string;
 }
 
-/** Options for {@link RootHerald.attest}. */
+/** Options for {@link RootHeraldClient.attest}. */
 export interface AttestOptions {
-  /** The single-use challenge id from {@link RootHerald.createChallenge}. */
+  /** The single-use challenge id from {@link RootHeraldClient.issueChallenge}. */
   challengeId: string;
   /**
    * Caller-named policy: a tenant-owned policy id/name or a
@@ -120,7 +120,7 @@ export interface AttestOptions {
 
 /**
  * Verdict plus the response top-level fields, as returned by
- * {@link RootHerald.verify}. `assuranceClaimsMet` and `enrollmentRequired` are
+ * {@link RootHeraldClient.verify}. `assuranceClaimsMet` and `enrollmentRequired` are
  * surfaced verbatim from the server response so callers can gate capabilities
  * and drive the enroll-on-miss flow (they are NOT part of the nested verdict).
  */
@@ -142,14 +142,14 @@ export type AttestResult = AttestationVerdict & {
  *
  * @example
  * ```ts
- * const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! });
- * const { challengeId, nonce } = await rh.createChallenge();
+ * const rh = new RootHeraldClient({ secretKey: process.env.RH_SECRET_KEY! });
+ * const { challengeId, nonce } = await rh.issueChallenge();
  * // relay `nonce` to the client; client quotes over it and returns `evidence`
- * const verdict = await rh.attest(evidence, { challengeId, policy: "default" });
+ * const verdict = await rh.verify(evidence, { challengeId, policy: "default" });
  * if (verdict.device.verdict === "pass") { ... }
  * ```
  */
-export class RootHerald {
+export class RootHeraldClient {
   private readonly secretKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -188,7 +188,7 @@ export class RootHerald {
    * over it, then submit the resulting evidence with {@link verify} using the
    * returned `challengeId`.
    */
-  async issueChallenge(opts?: CreateChallengeOptions): Promise<ChallengeResponse> {
+  async issueChallenge(opts?: IssueChallengeOptions): Promise<ChallengeResponse> {
     const body: { deviceHint?: string } = {};
     if (opts?.deviceHint !== undefined) body.deviceHint = opts.deviceHint;
 
@@ -412,22 +412,6 @@ export class RootHerald {
     if (typeof data.status === "string") result.status = data.status;
     if (typeof data.enrolledAt === "string") result.enrolledAt = data.enrolledAt;
     return result;
-  }
-
-  /**
-   * @deprecated Renamed to {@link issueChallenge} for the ABI 2.0 backend
-   * contract. Retained as a thin alias for backwards compatibility.
-   */
-  async createChallenge(opts?: CreateChallengeOptions): Promise<ChallengeResponse> {
-    return this.issueChallenge(opts);
-  }
-
-  /**
-   * @deprecated Renamed to {@link verify} for the ABI 2.0 backend contract.
-   * Retained as a thin alias for backwards compatibility.
-   */
-  async attest(evidence: EvidenceBlob, opts: AttestOptions): Promise<AttestResult> {
-    return this.verify(evidence, opts);
   }
 
   /**

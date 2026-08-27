@@ -4,11 +4,11 @@ Server-side SDK for Root Herald device attestation.
 
 **Backend relay (server -> server, Client ABI 2.0).** Your dumb client does
 local TPM work and hands your server opaque blobs (no keys, no Root Herald
-contact). Your server relays those blobs to Root Herald with the `RootHerald`
+contact). Your server relays those blobs to Root Herald with the `RootHeraldClient`
 client, authenticated by your `rh_sk_` secret key. The verdict is computed by
 Root Herald and returned to *your backend*; it never travels through the client.
 
-- `new RootHerald({ secretKey })`: the server client.
+- `new RootHeraldClient({ secretKey })`: the server client.
 - `rh.relayEnroll(enrollRequestBlob)`: enroll leg 1 (`POST /devices/enroll`).
   `201` returns the activation `challenge` + `deviceId`; `409` means the device
   is already enrolled (`alreadyEnrolled: true`, `deviceId` only, so skip leg 2).
@@ -33,9 +33,9 @@ Enrollment is a credential-activation handshake. Your client produces an
 client's activation response back.
 
 ```ts
-import { RootHerald } from '@rootherald/node';
+import { RootHeraldClient } from '@rootherald/node';
 
-const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
+const rh = new RootHeraldClient({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
 
 // Leg 1: relay the client's EnrollBegin() blob.
 const enroll = await rh.relayEnroll(enrollRequestBlob);
@@ -53,9 +53,9 @@ if (enroll.alreadyEnrolled) {
 ## Attest a device server-side
 
 ```ts
-import { RootHerald } from '@rootherald/node';
+import { RootHeraldClient } from '@rootherald/node';
 
-const rh = new RootHerald({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
+const rh = new RootHeraldClient({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
 
 // 1. Mint a nonce and relay it to your client.
 const { challengeId, nonce, expiresAt } = await rh.issueChallenge();

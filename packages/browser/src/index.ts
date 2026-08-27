@@ -20,11 +20,9 @@
 
 export {
   attest,
-  collectEvidence,
   type AttestOptions,
   type AttestWithRelayOptions,
   type AttestRelay,
-  type CollectOptions,
 } from './collect.js';
 export {
   enroll,
