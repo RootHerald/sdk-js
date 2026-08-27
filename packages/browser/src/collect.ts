@@ -135,16 +135,3 @@ export async function attest<R>(
   return evidence;
 }
 
-/**
- * @deprecated Renamed to {@link attest} for the Client ABI 3.0 contract. Thin
- * alias retained for backwards compatibility; resolves with the evidence blob.
- */
-export function collectEvidence(
-  nonce: string,
-  opts: AttestOptions = {},
-): Promise<EvidenceBlob> {
-  return attest(nonce, opts);
-}
-
-/** @deprecated Use {@link AttestOptions}. */
-export type CollectOptions = AttestOptions;
