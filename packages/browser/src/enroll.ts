@@ -17,9 +17,7 @@
  *
  * Flow:
  *   1. `enroll-begin` {}            -> { enrollRequestBlob }   (host EnrollBegin)
- *   2. relay.enroll(enrollRequestBlob) -> RelayEnrollResult
- *        - alreadyEnrolled: true  -> done (deviceId), skip the rest
- *        - alreadyEnrolled: false -> continue with `challenge`
+ *   2. relay.enroll(enrollRequestBlob) -> RelayEnrollResult { deviceId, challenge }
  *   3. `enroll-complete` { challenge } -> { activationBlob }   (host EnrollComplete)
  *   4. relay.activate(activationBlob)  -> done (deviceId)
  */
@@ -52,7 +50,7 @@ export interface EnrollRelay {
   /**
    * Relay leg 2. POST the `activationBlob` to your backend, which calls
    * @rootherald/node `relayActivate(blob)`. Only invoked on the fresh-enroll
-   * branch (`alreadyEnrolled: false`). The return value is ignored; resolve
+   * branch. The return value is ignored; resolve
    * however your transport does.
    */
   activate(
@@ -77,11 +75,6 @@ export interface EnrollResult {
    * `verdict.device.ueid`, not on this.
    */
   deviceId: string;
-  /**
-   * `true` when the device was already bound (the backend's relay short-circuited
-   * with a 409), so the activate leg was skipped. `false` for a fresh enroll.
-   */
-  alreadyEnrolled: boolean;
 }
 
 // Enrollment can block on a user-facing UAC prompt, so each native-host leg gets
@@ -90,8 +83,10 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
  * Enroll this device with RootHerald via the embedder-relayed handshake.
- * Idempotent — a returning device resolves with `alreadyEnrolled: true` and the
- * same `deviceId`.
+ *
+ * Idempotent — a device that has enrolled before runs the same two legs again
+ * and resolves with the same `deviceId`. Re-enrolment is also how a device
+ * rotates its attestation key, so it is never short-circuited.
  *
  * @param relay  Embedder callbacks that bridge the two network legs to the
  *               embedder's backend (which holds `rh_sk_`). The browser never
@@ -133,11 +128,6 @@ export async function enroll(
   // ── Relay leg 1: embedder POSTs the blob to its backend (rh_sk_) ───────────
   const relayResult = await relay.enroll(enrollRequestBlob);
 
-  // Already-enrolled short-circuit (backend saw a 409): skip the activate leg.
-  if (relayResult.alreadyEnrolled) {
-    return { deviceId: relayResult.deviceId, alreadyEnrolled: true };
-  }
-
   // ── Leg 2: host EnrollComplete(challenge) -> opaque activation blob ────────
   const completeRes = await sendRequest(
     { action: ACTION_ENROLL_COMPLETE, challenge: relayResult.challenge },
@@ -157,7 +147,7 @@ export async function enroll(
   await relay.activate(activationBlob);
 
   // deviceId is known after leg 1 (carried on the challenge / relay result).
-  return { deviceId: relayResult.deviceId, alreadyEnrolled: false };
+  return { deviceId: relayResult.deviceId };
 }
 
 /**

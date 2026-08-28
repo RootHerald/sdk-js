@@ -70,37 +70,23 @@ export type RelayEnrollRequest = EnrollRequestBlob;
 export type RelayEnrollResponse = EnrollActivationChallenge;
 
 /**
- * The `409 already-enrolled` response body of `POST /api/v1/devices/enroll`.
+ * Result of the enroll relay leg. The canonical shape every server SDK returns
+ * from its `relayEnroll` helper.
  *
- * The enroll endpoint is asymmetric: a fresh enroll returns the full
- * {@link RelayEnrollResponse} ({@link EnrollActivationChallenge}) with a `201`,
- * but a device that is already bound short-circuits with a `409` carrying ONLY
- * `deviceId` (no credential material). This models that 409 body. The server
- * SDKs (Go/Java/Ruby/PHP/.NET) mirror this one shape.
+ * Enrolment always issues a challenge, including for a device already known —
+ * re-enrolment is how a device rotates its attestation key, so short-circuiting
+ * it would make rotation impossible. Relay `challenge` to the client's
+ * `EnrollComplete`, then call the activate leg.
+ *
+ * `deviceId` is **this tenant's alias** for the device, not a global identifier:
+ * another tenant enrolling the same silicon is told a different one.
  */
-export interface AlreadyEnrolledResponse {
-  /** The already-enrolled device id (UUID). */
+export interface RelayEnrollResult {
+  /** This tenant's alias for the device. */
   deviceId: string;
+  /** The MakeCredential challenge to relay to the client. */
+  challenge: EnrollActivationChallenge;
 }
-
-/**
- * Resolved result of the enroll relay leg, normalizing the asymmetric
- * `201`/`409` HTTP outcomes into one discriminated union so callers branch on
- * `alreadyEnrolled` instead of re-parsing HTTP status. This is the canonical
- * shape every server SDK returns from its `relayEnroll` helper.
- *
- *   - **`alreadyEnrolled: false`** — fresh `201` enroll: `challenge` (the full
- *     {@link EnrollActivationChallenge}) is present; relay it to the client's
- *     `EnrollComplete`, then call the activate leg.
- *   - **`alreadyEnrolled: true`** — `409` short-circuit (see
- *     {@link AlreadyEnrolledResponse}): the device is already bound, so SKIP the
- *     activate leg and just use `deviceId`. No `challenge`.
- *
- * Either way `deviceId` is resolved.
- */
-export type RelayEnrollResult =
-  | { alreadyEnrolled: false; deviceId: string; challenge: EnrollActivationChallenge }
-  | { alreadyEnrolled: true; deviceId: string };
 
 /** Request body of the activate relay leg — `POST /api/v1/devices/activate`. */
 export type RelayActivateRequest = EnrollActivationResponse;

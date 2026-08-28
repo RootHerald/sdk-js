@@ -412,7 +412,7 @@ describe("relayEnroll", () => {
     ekCertPem: "-----BEGIN CERTIFICATE-----\n...",
   };
 
-  it("201 returns the full challenge + deviceId, alreadyEnrolled:false", async () => {
+  it("201 returns the full challenge + deviceId", async () => {
     const fetchMock = mockFetch(201, {
       deviceId: "dev-uuid-1",
       credentialBlob: "<base64 id-object>",
@@ -422,7 +422,6 @@ describe("relayEnroll", () => {
 
     const out = await rh.relayEnroll(enrollBlob);
 
-    expect(out.alreadyEnrolled).toBe(false);
     expect(out.deviceId).toBe("dev-uuid-1");
     expect(out.challenge).toEqual({
       deviceId: "dev-uuid-1",
@@ -437,26 +436,8 @@ describe("relayEnroll", () => {
     expect(JSON.parse(init.body)).toEqual(enrollBlob); // relayed verbatim
   });
 
-  it("409 already-enrolled resolves deviceId and signals skip-activate (no challenge)", async () => {
-    const fetchMock = mockFetch(409, { deviceId: "dev-uuid-existing" });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    const out = await rh.relayEnroll(enrollBlob);
-
-    expect(out.alreadyEnrolled).toBe(true);
-    expect(out.deviceId).toBe("dev-uuid-existing");
-    expect(out.challenge).toBeUndefined();
-    // A 409 must NOT throw here (unlike challenge/verify, where 409 is an error).
-  });
-
-  it("throws INVALID_RESPONSE when a 409 omits deviceId", async () => {
-    const fetchMock = mockFetch(409, {});
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-    const err = await rh.relayEnroll(enrollBlob).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(RootHeraldApiError);
-    expect((err as RootHeraldApiError).status).toBe(409);
-  });
-
+  
+  
   it("throws INVALID_RESPONSE when a 201 is missing credential material", async () => {
     const fetchMock = mockFetch(201, { deviceId: "dev-1" }); // no credentialBlob/encryptedSecret
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });

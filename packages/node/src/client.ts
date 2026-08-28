@@ -311,14 +311,10 @@ export class RootHeraldClient {
    * Enroll relay — leg 1. `POST /api/v1/devices/enroll`.
    *
    * Relays the client's `EnrollBegin()` blob to RootHerald with the `rh_sk_`
-   * secret and resolves the asymmetric response (see {@link RelayEnrollResult}):
+   * secret and returns the challenge to hand back to the client's
+   * `EnrollComplete`, whose result goes to {@link relayActivate}.
    *
-   *   - **`201`** — a fresh enroll; returns `{ deviceId, challenge, alreadyEnrolled: false }`.
-   *     Hand `challenge` to the client's `EnrollComplete`, then relay the result
-   *     to {@link relayActivate}.
-   *   - **`409`** — the device is already enrolled; returns
-   *     `{ deviceId, alreadyEnrolled: true }` (no challenge). SKIP the activate
-   *     leg — the device is already bound; just use `deviceId`.
+   * `deviceId` is this tenant's alias for the device, not a global identifier.
    *
    * The client never holds the `rh_sk_` key and never talks to RootHerald; this
    * backend helper is the only thing that does.
@@ -337,21 +333,6 @@ export class RootHeraldClient {
 
     const res = await this.rawPost("/api/v1/devices/enroll", enrollRequestBlob);
 
-    // 409 = already enrolled: the body carries only `deviceId`. Resolve it and
-    // signal "skip activate" instead of treating it as an error.
-    if (res.status === 409) {
-      const body = await readJsonObject(res);
-      const deviceId = typeof body.deviceId === "string" ? body.deviceId : undefined;
-      if (!deviceId) {
-        throw new RootHeraldApiError(
-          "already-enrolled (409) response missing `deviceId`",
-          "INVALID_RESPONSE",
-          409,
-        );
-      }
-      return { deviceId, alreadyEnrolled: true };
-    }
-
     if (!res.ok) {
       throw await toApiError(res);
     }
@@ -369,7 +350,7 @@ export class RootHeraldClient {
         res.status,
       );
     }
-    return { deviceId: data.deviceId, challenge: data, alreadyEnrolled: false };
+    return { deviceId: data.deviceId, challenge: data };
   }
 
   /**
