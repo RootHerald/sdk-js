@@ -14,7 +14,6 @@ import type {
   EnrollRequestBlob,
 } from "../src/enroll.js";
 import type {
-  AlreadyEnrolledResponse,
   RelayActivateRequest,
   RelayActivateResponse,
   RelayEnrollRequest,
@@ -74,23 +73,10 @@ const relayActivateResp = {
   enrolledAt: "2026-06-30T00:00:00Z",
 } satisfies RelayActivateResponse;
 
-// ── AlreadyEnrolledResponse == 409 body of /devices/enroll (deviceId only) ─
-const alreadyEnrolledBody = {
-  deviceId: "f1a2...uuid",
-} satisfies AlreadyEnrolledResponse;
-
-// ── RelayEnrollResult == normalized relay outcome (discriminated union) ────
-// 201 branch: alreadyEnrolled false + full MakeCredential challenge present.
-const relayEnrollFresh = {
-  alreadyEnrolled: false,
+// ── RelayEnrollResult == the relay outcome: alias + challenge, always ──────
+const relayEnrollResult = {
   deviceId: "f1a2...uuid",
   challenge: enrollChallenge,
-} satisfies RelayEnrollResult;
-
-// 409 branch: alreadyEnrolled true, deviceId only, NO challenge.
-const relayEnrollAlready = {
-  alreadyEnrolled: true,
-  deviceId: "f1a2...uuid",
 } satisfies RelayEnrollResult;
 
 // ── Pre-existing legs still represent the wire (sanity) ────────────────────
@@ -118,9 +104,7 @@ export const __contractAssertions = [
   relayEnrollResp,
   relayActivateReq,
   relayActivateResp,
-  alreadyEnrolledBody,
-  relayEnrollFresh,
-  relayEnrollAlready,
+  relayEnrollResult,
   challengeResp,
   verifyReq,
 ] as const;
