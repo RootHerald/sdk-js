@@ -34,14 +34,13 @@ describe('enroll (keyless, backend-relayed)', () => {
   it('fresh enroll: begin -> relay.enroll -> complete -> relay.activate', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
     const relay = makeRelay({
-      alreadyEnrolled: false,
       deviceId: 'dev-fresh',
       challenge: CHALLENGE,
     });
 
     const res = await enroll(relay, { ...FAST, win });
 
-    expect(res).toEqual({ deviceId: 'dev-fresh', alreadyEnrolled: false });
+    expect(res).toEqual({ deviceId: 'dev-fresh' });
     // relay.enroll got the opaque enrollRequestBlob the host produced.
     expect(relay.enroll).toHaveBeenCalledTimes(1);
     expect(relay.enroll.mock.calls[0][0]).toMatchObject({
@@ -58,22 +57,10 @@ describe('enroll (keyless, backend-relayed)', () => {
     });
   });
 
-  it('already-enrolled: 409 branch skips complete + activate', async () => {
-    const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
-    const relay = makeRelay({ alreadyEnrolled: true, deviceId: 'dev-known' });
-
-    const res = await enroll(relay, { ...FAST, win });
-
-    expect(res).toEqual({ deviceId: 'dev-known', alreadyEnrolled: true });
-    expect(relay.enroll).toHaveBeenCalledTimes(1);
-    // No second TPM leg, no activate relay.
-    expect(relay.activate).not.toHaveBeenCalled();
-    expect(win.lastChallenge).toBeUndefined();
-  });
 
   it('throws ExtensionMissingError when the extension never responds', async () => {
     const win = new FakeWindow({ extensionPresent: false });
-    const relay = makeRelay({ alreadyEnrolled: true, deviceId: 'x' });
+    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       ExtensionMissingError,
     );
@@ -82,7 +69,7 @@ describe('enroll (keyless, backend-relayed)', () => {
 
   it('throws HostMissingError when extension is present but host is disconnected', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: false });
-    const relay = makeRelay({ alreadyEnrolled: true, deviceId: 'x' });
+    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       HostMissingError,
     );
@@ -94,7 +81,7 @@ describe('enroll (keyless, backend-relayed)', () => {
       hostPresent: true,
       enrollBeginHangs: true,
     });
-    const relay = makeRelay({ alreadyEnrolled: true, deviceId: 'x' });
+    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       ExtensionMissingError,
     );
@@ -106,7 +93,7 @@ describe('enroll (keyless, backend-relayed)', () => {
       hostPresent: false,
       hostError: 'Request timed out',
     });
-    const relay = makeRelay({ alreadyEnrolled: true, deviceId: 'x' });
+    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(TimeoutError);
   });
 
@@ -116,7 +103,7 @@ describe('enroll (keyless, backend-relayed)', () => {
       hostPresent: true,
       enrollBeginNoBlob: true,
     });
-    const relay = makeRelay({ alreadyEnrolled: true, deviceId: 'x' });
+    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       HostMissingError,
     );
