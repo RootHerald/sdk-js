@@ -30,13 +30,13 @@ export {
 // its `rh_sk_` secret. The four legs and their request/response shapes:
 //
 //   relayEnroll(EnrollRequestBlob)        -> EnrollActivationChallenge
-//                                            POST /api/v1/devices/enroll
+//                                            POST /api/v1/attest/enroll
 //   relayActivate(EnrollActivationResponse) -> RelayActivateResponse
-//                                            POST /api/v1/devices/activate
+//                                            POST /api/v1/attest/activate
 //   issueChallenge(ChallengeRequest)      -> ChallengeResponse
-//                                            POST /api/v1/attestations/challenge
+//                                            POST /api/v1/attest/challenge
 //   verify(VerifyAttestationRequest)      -> VerifyAttestationResponse
-//                                            POST /api/v1/attestations/verify
+//                                            POST /api/v1/attest/verify
 //
 // The challenge/verify pair already lives in `background-check.ts` (re-exported
 // below for one-stop server-side import). Only the enroll-relay pair is new; its
@@ -63,7 +63,7 @@ import type {
   EnrollActivationResponse,
 } from "./enroll.js";
 
-/** Request body of the enroll relay leg — `POST /api/v1/devices/enroll`. */
+/** Request body of the enroll relay leg — `POST /api/v1/attest/enroll`. */
 export type RelayEnrollRequest = EnrollRequestBlob;
 
 /** Response of the enroll relay leg — the MakeCredential challenge. */
@@ -88,11 +88,11 @@ export interface RelayEnrollResult {
   challenge: EnrollActivationChallenge;
 }
 
-/** Request body of the activate relay leg — `POST /api/v1/devices/activate`. */
+/** Request body of the activate relay leg — `POST /api/v1/attest/activate`. */
 export type RelayActivateRequest = EnrollActivationResponse;
 
 /**
- * Response of the activate relay leg — `POST /api/v1/devices/activate`. Mirrors
+ * Response of the activate relay leg — `POST /api/v1/attest/activate`. Mirrors
  * the server's terminal `{ deviceId, status, enrolledAt }` body; the migration
  * contract treats `deviceId` as the load-bearing field.
  */

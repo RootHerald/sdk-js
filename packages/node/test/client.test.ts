@@ -80,7 +80,7 @@ describe("issueChallenge", () => {
     });
 
     const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/attestations/challenge`);
+    expect(url).toBe(`${BASE}/api/v1/attest/challenge`);
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     expect(init.headers["Content-Type"]).toBe("application/json");
@@ -110,7 +110,7 @@ describe("attest", () => {
     await rh.verify(evidence, { challengeId: "chal-1", policy: "rootherald:builtin:strict" });
 
     const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/attestations/verify`);
+    expect(url).toBe(`${BASE}/api/v1/attest/verify`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     const body = JSON.parse(init.body);
     expect(body.challengeId).toBe("chal-1");
@@ -155,7 +155,7 @@ describe("attest", () => {
     await rh.issueChallenge();
 
     const [url] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("https://rootherald.io/api/v1/attestations/challenge");
+    expect(url).toBe("https://rootherald.io/api/v1/attest/challenge");
   });
 
   it("passes cohort fields on verdict.device through verbatim", async () => {
@@ -283,7 +283,7 @@ describe("error mapping", () => {
 
 // ── ABI 2.0 canonical names: issueChallenge / verify ───────────────────────
 describe("issueChallenge (ABI 2.0 name for issueChallenge)", () => {
-  it("hits POST /api/v1/attestations/challenge with the rh_sk_ bearer", async () => {
+  it("hits POST /api/v1/attest/challenge with the rh_sk_ bearer", async () => {
     const fetchMock = mockFetch(200, {
       challengeId: "chal-9",
       nonce: "bm9uY2U=",
@@ -299,7 +299,7 @@ describe("issueChallenge (ABI 2.0 name for issueChallenge)", () => {
     });
 
     const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/attestations/challenge`);
+    expect(url).toBe(`${BASE}/api/v1/attest/challenge`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
   });
 
@@ -312,7 +312,7 @@ describe("issueChallenge (ABI 2.0 name for issueChallenge)", () => {
 });
 
 describe("verify", () => {
-  it("hits POST /api/v1/attestations/verify and returns the verdict", async () => {
+  it("hits POST /api/v1/attest/verify and returns the verdict", async () => {
     const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
@@ -320,7 +320,7 @@ describe("verify", () => {
     expect(verdict.device.verdict).toBe("pass");
 
     const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/attestations/verify`);
+    expect(url).toBe(`${BASE}/api/v1/attest/verify`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
   });
 
@@ -430,7 +430,7 @@ describe("relayEnroll", () => {
     });
 
     const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/devices/enroll`);
+    expect(url).toBe(`${BASE}/api/v1/attest/enroll`);
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     expect(JSON.parse(init.body)).toEqual(enrollBlob); // relayed verbatim
@@ -467,7 +467,7 @@ describe("relayActivate", () => {
     decryptedSecret: "<base64 32-byte secret>",
   };
 
-  it("hits POST /api/v1/devices/activate and returns the terminal body", async () => {
+  it("hits POST /api/v1/attest/activate and returns the terminal body", async () => {
     const fetchMock = mockFetch(200, {
       deviceId: "dev-uuid-1",
       status: "enrolled",
@@ -483,7 +483,7 @@ describe("relayActivate", () => {
     });
 
     const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/devices/activate`);
+    expect(url).toBe(`${BASE}/api/v1/attest/activate`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     expect(JSON.parse(init.body)).toEqual(activateBlob); // relayed verbatim
   });

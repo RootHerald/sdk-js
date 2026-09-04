@@ -183,7 +183,7 @@ export class RootHeraldClient {
   }
 
   /**
-   * `POST /api/v1/attestations/challenge` — mints a fresh, relay-friendly nonce
+   * `POST /api/v1/attest/challenge` — mints a fresh, relay-friendly nonce
    * (freshness / anti-replay). Relay `nonce` to the client; the client quotes
    * over it, then submit the resulting evidence with {@link verify} using the
    * returned `challengeId`.
@@ -193,7 +193,7 @@ export class RootHeraldClient {
     if (opts?.deviceHint !== undefined) body.deviceHint = opts.deviceHint;
 
     const data = await this.post<ChallengeResponse>(
-      "/api/v1/attestations/challenge",
+      "/api/v1/attest/challenge",
       body,
     );
     if (
@@ -215,7 +215,7 @@ export class RootHeraldClient {
   }
 
   /**
-   * `POST /api/v1/attestations/verify` — submits the opaque evidence blob for
+   * `POST /api/v1/attest/verify` — submits the opaque evidence blob for
    * server-side appraisal and returns the verdict. The verdict is computed by
    * RootHerald and returned here, to the customer's backend — it NEVER travels
    * through the client, which holds no key and gets no verdict.
@@ -244,7 +244,7 @@ export class RootHeraldClient {
     }
 
     const data = await this.post<VerifyAttestationResponse>(
-      "/api/v1/attestations/verify",
+      "/api/v1/attest/verify",
       body,
     );
     if (!data || typeof data !== "object" || !("verdict" in data)) {
@@ -308,7 +308,7 @@ export class RootHeraldClient {
   }
 
   /**
-   * Enroll relay — leg 1. `POST /api/v1/devices/enroll`.
+   * Enroll relay — leg 1. `POST /api/v1/attest/enroll`.
    *
    * Relays the client's `EnrollBegin()` blob to RootHerald with the `rh_sk_`
    * secret and returns the challenge to hand back to the client's
@@ -331,7 +331,7 @@ export class RootHeraldClient {
       );
     }
 
-    const res = await this.rawPost("/api/v1/devices/enroll", enrollRequestBlob);
+    const res = await this.rawPost("/api/v1/attest/enroll", enrollRequestBlob);
 
     if (!res.ok) {
       throw await toApiError(res);
@@ -354,7 +354,7 @@ export class RootHeraldClient {
   }
 
   /**
-   * Enroll relay — leg 2. `POST /api/v1/devices/activate`.
+   * Enroll relay — leg 2. `POST /api/v1/attest/activate`.
    *
    * Relays the client's `EnrollComplete()` blob (the decrypted credential
    * secret) to RootHerald, completing the EK→AK credential-activation handshake.
@@ -379,7 +379,7 @@ export class RootHeraldClient {
     }
 
     const data = await this.post<RelayActivateResponse>(
-      "/api/v1/devices/activate",
+      "/api/v1/attest/activate",
       activationResponse,
     );
     if (!data || typeof data.deviceId !== "string") {
