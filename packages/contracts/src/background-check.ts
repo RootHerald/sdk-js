@@ -3,8 +3,8 @@
  *
  * These mirror the frozen RootHerald HTTP contract for the server-side
  * appraisal flow:
- *   - C1  POST /api/v1/attestations/challenge  (relay-friendly nonce)
- *   - C2  POST /api/v1/attestations/verify     (server -> server appraise)
+ *   - C1  POST /api/v1/attest/challenge  (relay-friendly nonce)
+ *   - C2  POST /api/v1/attest/verify     (server -> server appraise)
  *
  * The customer's dumb client collects an opaque evidence blob and hands it to
  * the customer's own server; that server calls these endpoints with its
@@ -17,7 +17,7 @@
 
 import type { AttestationVerdict } from "./sdk-api.js";
 
-/** Request body for `POST /api/v1/attestations/challenge` (C1). */
+/** Request body for `POST /api/v1/attest/challenge` (C1). */
 export interface ChallengeRequest {
   /**
    * Optional hint identifying the device the challenge is for. No pre-enrolled
@@ -26,7 +26,7 @@ export interface ChallengeRequest {
   deviceHint?: string;
 }
 
-/** Response body (200) for `POST /api/v1/attestations/challenge` (C1). */
+/** Response body (200) for `POST /api/v1/attest/challenge` (C1). */
 export interface ChallengeResponse {
   /** Opaque single-use challenge id; pass it back to verify (C2). */
   challengeId: string;
@@ -49,7 +49,7 @@ export type EvidenceBlob = unknown;
  */
 export type RequestedDisclosureClass = "verdict" | "pseudonymous" | "derived" | "full";
 
-/** Request body for `POST /api/v1/attestations/verify` (C2). */
+/** Request body for `POST /api/v1/attest/verify` (C2). */
 export interface VerifyAttestationRequest {
   /** The single-use challenge id returned by C1. */
   challengeId: string;
@@ -68,7 +68,7 @@ export interface VerifyAttestationRequest {
   requestedDisclosureClass?: RequestedDisclosureClass;
 }
 
-/** Response body (200) for `POST /api/v1/attestations/verify` (C2). */
+/** Response body (200) for `POST /api/v1/attest/verify` (C2). */
 export interface VerifyAttestationResponse {
   /** The appraisal verdict — the EXISTING `AttestationVerdict` shape. */
   verdict: AttestationVerdict;

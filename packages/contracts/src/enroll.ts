@@ -31,7 +31,7 @@
 import type { Platform } from "./eat.js";
 
 /**
- * `EnrollBegin()` output — the body of `POST /api/v1/devices/enroll`.
+ * `EnrollBegin()` output — the body of `POST /api/v1/attest/enroll`.
  *
  * Mirrors the server `EnrollmentRequest` DTO and the native client's
  * `BuildEnrollFields`. The client gathers the EK material and the freshly
@@ -72,7 +72,7 @@ export interface EnrollRequestBlob {
 
 /**
  * The MakeCredential challenge — the `201` response body of
- * `POST /api/v1/devices/enroll`, and the input to `EnrollComplete()`.
+ * `POST /api/v1/attest/enroll`, and the input to `EnrollComplete()`.
  *
  * Mirrors the server `EnrollmentResponse` DTO. `credentialBlob` and
  * `encryptedSecret` are the `TPM2_MakeCredential` outputs (already TPM2B-framed);
@@ -92,7 +92,7 @@ export interface EnrollActivationChallenge {
 }
 
 /**
- * `EnrollComplete()` output — the body of `POST /api/v1/devices/activate`.
+ * `EnrollComplete()` output — the body of `POST /api/v1/attest/activate`.
  *
  * Mirrors the server `ActivationRequest` DTO. The client decrypts the challenge
  * inside the TPM and returns the released secret to prove EK→AK binding.

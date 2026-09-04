@@ -25,7 +25,7 @@ import type {
   VerifyAttestationRequest,
 } from "../src/background-check.js";
 
-// ── EnrollRequestBlob == POST /api/v1/devices/enroll body ──────────────────
+// ── EnrollRequestBlob == POST /api/v1/attest/enroll body ──────────────────
 // (sdk-native rootherald_win.cpp BuildEnrollFields + server EnrollmentRequest)
 const enrollBody = {
   ekPublicKey: "<base64 PCP_EKPUB>",
@@ -50,7 +50,7 @@ const enrollChallenge = {
   encryptedSecret: "<base64 MakeCredential secret>",
 } satisfies EnrollActivationChallenge;
 
-// ── EnrollActivationResponse == POST /api/v1/devices/activate body ─────────
+// ── EnrollActivationResponse == POST /api/v1/attest/activate body ─────────
 // (server ActivationRequest; cpp activate body {deviceId, decryptedSecret})
 const activateBody = {
   deviceId: "f1a2...uuid",
