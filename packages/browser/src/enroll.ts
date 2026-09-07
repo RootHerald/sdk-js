@@ -1,8 +1,8 @@
 /**
  * Device enrollment — orchestrate the keyless, backend-relayed enroll handshake.
  *
- * A first-time device must ENROLL before {@link import('./collect.js').attest}
- * works. Enrollment is a two-leg credential-activation handshake; the local TPM
+ * A first-time device must ENROLL before {@link import('./respond.js').respond}
+ * can answer an identity challenge. Enrollment is a two-leg credential-activation handshake; the local TPM
  * halves run on the native host under a SINGLE elevation (one "Establish
  * hardware key" UAC) via raw-TBS — `EnrollBegin` (gen AK, gather EK) then
  * `EnrollComplete` (`TPM2_ActivateCredential`) in the SAME resident elevated
@@ -31,7 +31,8 @@ import type {
   RelayActivateResponse,
 } from '@rootherald/contracts/server';
 import { ACTION_ENROLL_BEGIN, ACTION_ENROLL_COMPLETE } from './constants.js';
-import { ExtensionMissingError, HostMissingError, TimeoutError } from './errors.js';
+import { HostMissingError } from './errors.js';
+import { classifyFailure } from './host-error.js';
 import { sendRequest, type MessageWindow } from './transport.js';
 
 /**
@@ -43,15 +44,15 @@ import { sendRequest, type MessageWindow } from './transport.js';
 export interface EnrollRelay {
   /**
    * Relay leg 1. POST `enrollRequestBlob` to your backend, which calls
-   * @rootherald/node `relayEnroll(blob)` and returns its {@link RelayEnrollResult}
-   * (the normalized 201-fresh / 409-already-enrolled outcome).
+   * @rootherald/node `relayEnroll(blob, { challengeId? })` and returns its
+   * {@link RelayEnrollResult}. Pass a live challenge id on the backend to run
+   * admission against that challenge's policy.
    */
   enroll(enrollRequestBlob: EnrollRequestBlob): Promise<RelayEnrollResult>;
   /**
    * Relay leg 2. POST the `activationBlob` to your backend, which calls
-   * @rootherald/node `relayActivate(blob)`. Only invoked on the fresh-enroll
-   * branch. The return value is ignored; resolve
-   * however your transport does.
+   * @rootherald/node `relayActivate(blob)`. The return value is ignored;
+   * resolve however your transport does.
    */
   activate(
     activationBlob: EnrollActivationResponse,
@@ -78,7 +79,7 @@ export interface EnrollResult {
 }
 
 // Enrollment can block on a user-facing UAC prompt, so each native-host leg gets
-// a generous default well above the collect timeout.
+// a generous default well above the respond timeout.
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
@@ -95,6 +96,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  *   - {@link ExtensionMissingError} if the extension never responds
  *   - {@link HostMissingError} if the extension is present but the native host
  *     could not be reached / errored (incl. a declined UAC)
+ *   - {@link AbiMismatchError} if the host is a different version than this SDK
  *   - {@link TimeoutError} if a leg started but did not complete in time
  *   - whatever `relay.enroll` / `relay.activate` reject with (backend errors)
  */
@@ -115,8 +117,10 @@ export async function enroll(
     { action: ACTION_ENROLL_BEGIN },
     { timeoutMs, win },
   );
-  classifyTransportFailure(beginRes, 'beginning enrollment');
-  const enrollRequestBlob = beginRes!.data?.enrollRequestBlob as
+  if (beginRes === null || beginRes.success !== true) {
+    throw classifyFailure(beginRes, 'beginning enrollment');
+  }
+  const enrollRequestBlob = beginRes.data?.enrollRequestBlob as
     | EnrollRequestBlob
     | undefined;
   if (!enrollRequestBlob) {
@@ -133,8 +137,10 @@ export async function enroll(
     { action: ACTION_ENROLL_COMPLETE, challenge: relayResult.challenge },
     { timeoutMs, win },
   );
-  classifyTransportFailure(completeRes, 'completing enrollment');
-  const activationBlob = completeRes!.data?.activationBlob as
+  if (completeRes === null || completeRes.success !== true) {
+    throw classifyFailure(completeRes, 'completing enrollment');
+  }
+  const activationBlob = completeRes.data?.activationBlob as
     | EnrollActivationResponse
     | undefined;
   if (!activationBlob) {
@@ -148,35 +154,4 @@ export async function enroll(
 
   // deviceId is known after leg 1 (carried on the challenge / relay result).
   return { deviceId: relayResult.deviceId };
-}
-
-/**
- * Turn a native-host leg's transport outcome into a typed error. Throws when the
- * response is missing or unsuccessful; returns cleanly when the host reported
- * success (data shape is validated by the caller). Mirrors the collect classifier.
- */
-function classifyTransportFailure(
-  res: { success?: boolean; error?: string } | null,
-  doing: string,
-): void {
-  if (res === null) {
-    throw new ExtensionMissingError(
-      `No response from the RootHerald extension while ${doing}`,
-    );
-  }
-  if (res.success === true) return;
-
-  const errText = String(res.error ?? '').toLowerCase();
-  if (
-    errText.includes('native host') ||
-    errText.includes('disconnect') ||
-    errText.includes('connectnative')
-  ) {
-    throw new HostMissingError(res.error ?? 'RootHerald native host not reachable');
-  }
-  if (errText.includes('timed out') || errText.includes('timeout')) {
-    throw new TimeoutError(res.error ?? 'Enrollment timed out');
-  }
-  // Extension present but no result: treat as a host problem (most actionable).
-  throw new HostMissingError(res.error ?? 'Enrollment failed');
 }

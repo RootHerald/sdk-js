@@ -2,7 +2,43 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
-## Unreleased
+## 0.1.0-alpha.15
+
+The challenge carries the ask. What the device is asked to prove is fixed at
+`issueChallenge`, bound to the challenge server-side, and appraised against at
+`verify`.
+
+### Added
+
+- `issueChallenge` options `ask` (`Ask[]`), `policy`, and `keyPurpose`; the
+  response now includes the `challenge` string to relay to the client
+  verbatim. Omitting `ask` behaves as before (`["identity", "posture"]`).
+- `verify` results carry `key` when the challenge asked for `"key"` and the
+  verdict passed: `{ keyId, jwk, purpose, authPolicy?, certifiedAt }`, with
+  `certifiedAt` parsed to a `Date` like the verdict's own timestamps.
+- `verifyKeySignature(jwk, message, signature)` checks an ES256 signature
+  from a certified key with `node:crypto` only. Message as bytes or UTF-8
+  string; signature as bytes or base64url; P1363 or DER. Returns `false`,
+  never throws, on malformed input.
+- `relayEnroll(blob, { challengeId })` runs admission against the policy bound
+  to that challenge. Refusal is `AdmissionRefusedError` (422
+  `admission_refused`), with the server's detail as the message.
+- `PolicyDowngradeError` (422 `policy_downgrade`): `verify` named a weaker
+  policy than the challenge's. A 422 without either code is still
+  `UnknownPolicyError`.
+- Re-exports `Ask`, `CertifiedKey`, `KeyBlob`, `KeyCertification`,
+  `RequestedDisclosureClass`, and the mobile-bridge types and
+  `buildMobileAttestLink`, so nothing needs a direct `@rootherald/contracts`
+  import.
+
+### Fixed
+
+- The README described `/devices/*` routes, an `alreadyEnrolled` branch, and
+  `createChallenge`/`attest` aliases, none of which exist. It now documents
+  the real API and the three flows: identity binding, posture step-up, key
+  issuance with local verification.
+
+## Unreleased (0.1.0-alpha.14 and earlier)
 
 ### Breaking
 

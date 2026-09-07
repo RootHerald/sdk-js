@@ -21,9 +21,15 @@ import type {
   RelayEnrollResult,
 } from "../src/server.js";
 import type {
+  CertifiedKey,
+  ChallengeRequest,
   ChallengeResponse,
+  KeyBlob,
+  KeyCertification,
   VerifyAttestationRequest,
+  VerifyAttestationResponse,
 } from "../src/background-check.js";
+import type { AttestationVerdict } from "../src/sdk-api.js";
 
 // ── EnrollRequestBlob == POST /api/v1/attest/enroll body ──────────────────
 // (sdk-native rootherald_win.cpp BuildEnrollFields + server EnrollmentRequest)
@@ -73,24 +79,133 @@ const relayActivateResp = {
   enrolledAt: "2026-06-30T00:00:00Z",
 } satisfies RelayActivateResponse;
 
+// The backend adds `challengeId` so admission runs against that challenge's
+// policy; the client blob itself is unchanged.
+const relayEnrollReqWithChallenge = {
+  ...enrollBody,
+  challengeId: "c-123",
+} satisfies RelayEnrollRequest;
+
 // ── RelayEnrollResult == the relay outcome: alias + challenge, always ──────
 const relayEnrollResult = {
   deviceId: "f1a2...uuid",
   challenge: enrollChallenge,
 } satisfies RelayEnrollResult;
 
-// ── Pre-existing legs still represent the wire (sanity) ────────────────────
+// ── ChallengeRequest == POST /api/v1/attest/challenge body, one per ask ────
+// An empty body is today's behaviour: ask defaults to ["identity", "posture"].
+const challengeReqDefault = {} satisfies ChallengeRequest;
+
+const challengeReqIdentity = {
+  ask: ["identity"],
+  deviceHint: "laptop-7",
+} satisfies ChallengeRequest;
+
+const challengeReqPosture = {
+  ask: ["posture"],
+  policy: "rootherald:builtin:strict-hardware",
+} satisfies ChallengeRequest;
+
+// `keyPurpose` is read only because `ask` contains "key".
+const challengeReqKey = {
+  ask: ["identity", "posture", "key"],
+  policy: "rootherald:builtin:strict-hardware",
+  keyPurpose: "sign",
+} satisfies ChallengeRequest;
+
+// ── ChallengeResponse == 200 of /attest/challenge, with the rhc1 string ────
+// `challenge` is `rhc1.<base64url nonce>.<base64url ask-json>`; the second
+// segment is the same 32 bytes as `nonce` (base64url, unpadded), the third is
+// {"ask":["identity","posture","key"],"purpose":"sign"} — `purpose` is present
+// only when the ask contains "key".
 const challengeResp = {
   challengeId: "c-123",
-  nonce: "<base64 nonce>",
+  nonce: "CzBVep/E6Q4zWH2ix+wRNluApcrvFDleg6jN8hc8YYY=",
   expiresAt: "2026-06-30T00:05:00Z",
+  challenge:
+    "rhc1.CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY." +
+    "eyJhc2siOlsiaWRlbnRpdHkiLCJwb3N0dXJlIiwia2V5Il0sInB1cnBvc2UiOiJzaWduIn0",
 } satisfies ChallengeResponse;
+
+// ── Evidence carrying a key certification (documented contents) ────────────
+// EvidenceBlob is `unknown` on the wire; the nested object is pinned on its own.
+const keyCertification = {
+  publicArea: "<base64 TPM2B_PUBLIC of the new P-256 key>",
+  attest: "<base64 TPM2B_ATTEST from TPM2_Certify>",
+  signature: "<base64 TPMT_SIGNATURE by the AK>",
+  purpose: "sign",
+} satisfies KeyCertification;
+
+const evidenceWithKey = {
+  quote: {},
+  eventLog: "<base64>",
+  keyCertification,
+} as unknown; // EvidenceBlob is opaque (unknown)
 
 const verifyReq = {
   challengeId: "c-123",
   evidence: { quote: {} } as unknown, // EvidenceBlob is opaque (unknown)
   policy: "rootherald:builtin:strict-hardware",
 } satisfies VerifyAttestationRequest;
+
+const verifyReqWithKey = {
+  challengeId: "c-123",
+  evidence: evidenceWithKey,
+} satisfies VerifyAttestationRequest;
+
+// ── VerifyAttestationResponse, with and without the key block ──────────────
+// The verdict shape is the existing AttestationVerdict; only the fields the
+// key samples turn on are spelled out.
+const passVerdict = {
+  acr: "urn:rootherald:device:high",
+  amr: ["hwk"],
+  authTime: new Date("2026-06-30T00:01:00Z"),
+  expiresAt: new Date("2026-06-30T00:06:00Z"),
+  userId: "u-1",
+  requestedAcrValues: ["urn:rootherald:device:high"],
+  device: {
+    ueid: "f1a2...uuid",
+    earStatus: "affirming",
+    verdict: "pass",
+    attestationType: "tpm20",
+    attestedAt: new Date("2026-06-30T00:01:00Z"),
+  },
+  raw: {},
+} satisfies AttestationVerdict;
+
+const failVerdict = {
+  ...passVerdict,
+  device: { ...passVerdict.device, earStatus: "contraindicated", verdict: "fail" },
+} satisfies AttestationVerdict;
+
+const certifiedKey = {
+  keyId: "k-9f3a",
+  jwk: {
+    kty: "EC",
+    crv: "P-256",
+    x: "<base64url x>",
+    y: "<base64url y>",
+  },
+  purpose: "sign",
+  certifiedAt: "2026-06-30T00:01:00Z",
+} satisfies CertifiedKey;
+
+// Passing verdict on a "key" ask: the key block is present.
+const verifyRespWithKey = {
+  verdict: passVerdict,
+  assuranceClaimsMet: ["device:high"],
+  key: certifiedKey,
+} satisfies VerifyAttestationResponse;
+
+// Failing verdict on the same "key" ask: no key block, whatever the evidence
+// carried. Spelled out as a variable of the declared type so a future
+// `key: CertifiedKey` (required) would fail here.
+const verifyRespFailedKeyAsk: VerifyAttestationResponse = {
+  verdict: failVerdict,
+};
+
+// The caller stores the wrapped private key; no SDK parses it.
+const keyBlob: KeyBlob = "cmhrMQEA...roughly-300-bytes-of-base64url";
 
 // Reference the bindings so `noUnusedLocals`-style checks never trip and the
 // assertions are not tree-shaken away by lint.
@@ -104,7 +219,18 @@ export const __contractAssertions = [
   relayEnrollResp,
   relayActivateReq,
   relayActivateResp,
+  relayEnrollReqWithChallenge,
   relayEnrollResult,
+  challengeReqDefault,
+  challengeReqIdentity,
+  challengeReqPosture,
+  challengeReqKey,
   challengeResp,
+  keyCertification,
+  evidenceWithKey,
   verifyReq,
+  verifyReqWithKey,
+  verifyRespWithKey,
+  verifyRespFailedKeyAsk,
+  keyBlob,
 ] as const;

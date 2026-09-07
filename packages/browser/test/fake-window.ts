@@ -1,7 +1,7 @@
 /**
  * A minimal fake `window` that simulates the RootHerald extension's content
  * script. Tests configure how it responds to each action, mirroring the real
- * Client ABI 3.0 postMessage wire (content-script.ts / service-worker.ts).
+ * Client ABI 6.0 postMessage wire (content-script / service-worker).
  */
 
 import type { MessageWindow } from '../src/transport.js';
@@ -15,14 +15,24 @@ type Listener = (event: { data: unknown; source?: unknown }) => void;
 export interface ExtensionBehavior {
   /** If false, the extension never answers a `ping` (simulates no extension). */
   extensionPresent?: boolean;
-  /** If false, `status`/`collect`/`enroll-*` return a native-host failure. */
+  /** If false, every host action returns a native-host failure. */
   hostPresent?: boolean;
-  /** Evidence blob returned on a successful `collect`. */
+  /** Evidence blob returned on a successful `respond`. */
   evidence?: unknown;
+  /** Key blob returned on a successful `respond` (a `"key"` ask). */
+  keyBlob?: unknown;
+  /** Signature returned on a successful `sign`. */
+  signature?: unknown;
+  /** `alg` returned on a successful `sign`; defaults to ES256, `null` omits it. */
+  alg?: unknown;
+  /** Posture signals returned on a successful `posture`. */
+  posture?: Record<string, unknown>;
   /** Force a specific error string on host failure. */
   hostError?: string;
-  /** If true, `collect` never answers (simulates a hung quote). */
-  collectHangs?: boolean;
+  /** If true, `respond` never answers (simulates a hung quote). */
+  respondHangs?: boolean;
+  /** If true, `sign` never answers. */
+  signHangs?: boolean;
   /** If true, `status` never answers (simulates a hung host probe). */
   statusHangs?: boolean;
   /** Enroll request blob returned on a successful `enroll-begin`. */
@@ -37,6 +47,10 @@ export interface ExtensionBehavior {
   enrollBeginNoBlob?: boolean;
   /** If true, `enroll-complete` succeeds but omits the activationBlob. */
   enrollCompleteNoBlob?: boolean;
+  /** If true, `respond` succeeds but omits the evidence. */
+  respondNoEvidence?: boolean;
+  /** If true, `sign` succeeds but omits the signature. */
+  signNoSignature?: boolean;
 }
 
 const DEFAULT_ENROLL_REQUEST: EnrollRequestBlob = {
@@ -50,12 +64,21 @@ const DEFAULT_ACTIVATION: EnrollActivationResponse = {
   decryptedSecret: 'secret-b64',
 };
 
+interface SeenRequest {
+  action?: string;
+  challenge?: unknown;
+  keyBlob?: unknown;
+  data?: unknown;
+}
+
 export class FakeWindow implements MessageWindow {
   location = { origin: 'https://demo.rootherald.test' };
   private listeners = new Set<Listener>();
   behavior: ExtensionBehavior;
 
-  /** The `challenge` last seen on an `enroll-complete` request, for assertions. */
+  /** Every request the page posted, oldest first, for assertions. */
+  requests: SeenRequest[] = [];
+  /** The `challenge` last seen on an `enroll-complete` request. */
   lastChallenge: unknown;
 
   constructor(behavior: ExtensionBehavior = {}) {
@@ -72,14 +95,14 @@ export class FakeWindow implements MessageWindow {
 
   /** Page posts a request; the fake extension reacts asynchronously. */
   postMessage(message: unknown, _targetOrigin: string): void {
-    const req = message as {
-      type?: string;
-      requestId?: string;
-      action?: string;
-      challengeId?: string;
-      challenge?: unknown;
-    };
+    const req = message as SeenRequest & { type?: string; requestId?: string };
     if (req?.type !== 'rootherald-request') return;
+    this.requests.push({
+      action: req.action,
+      challenge: req.challenge,
+      keyBlob: req.keyBlob,
+      data: req.data,
+    });
     queueMicrotask(() => this.respond(req));
   }
 
@@ -92,12 +115,7 @@ export class FakeWindow implements MessageWindow {
     });
   }
 
-  private respond(req: {
-    requestId?: string;
-    action?: string;
-    challengeId?: string;
-    challenge?: unknown;
-  }): void {
+  private respond(req: SeenRequest & { requestId?: string }): void {
     const b = this.behavior;
     const requestId = req.requestId!;
 
@@ -112,6 +130,8 @@ export class FakeWindow implements MessageWindow {
       return;
     }
 
+    if (b.extensionPresent === false) return; // no relay at all
+
     if (req.action === 'status') {
       if (b.statusHangs) return;
       if (b.hostPresent === false) return void this.hostFailure(requestId);
@@ -119,30 +139,46 @@ export class FakeWindow implements MessageWindow {
         type: 'rootherald-response',
         requestId,
         success: true,
-        data: { status: 'ready', platform: 'windows', hasTpm: 'true' },
+        data: { status: 'ready', platform: 'windows', hasTpm: 'true', abi: '6.0', host: '1.4.0' },
       });
       return;
     }
 
-    if (req.action === 'collect') {
-      if (b.collectHangs) return;
-      if (b.extensionPresent === false) return; // no relay at all
+    if (req.action === 'posture') {
       if (b.hostPresent === false) return void this.hostFailure(requestId);
       this.emit({
         type: 'rootherald-response',
         requestId,
         success: true,
-        data: {
-          evidence: b.evidence ?? { quote: 'fake-quote', sig: 'abc' },
-          challengeId: req.challengeId,
-        },
+        data: b.posture ?? { abi: '6.0', host: '1.4.0', enrolled: true, secureBoot: true },
       });
+      return;
+    }
+
+    if (req.action === 'respond') {
+      if (b.respondHangs) return;
+      if (b.hostPresent === false) return void this.hostFailure(requestId);
+      const data: Record<string, unknown> = b.respondNoEvidence
+        ? {}
+        : { evidence: b.evidence ?? { quote: 'fake-quote', sig: 'abc' } };
+      if (b.keyBlob !== undefined) data.keyBlob = b.keyBlob;
+      this.emit({ type: 'rootherald-response', requestId, success: true, data });
+      return;
+    }
+
+    if (req.action === 'sign') {
+      if (b.signHangs) return;
+      if (b.hostPresent === false) return void this.hostFailure(requestId);
+      const data: Record<string, unknown> = b.signNoSignature
+        ? {}
+        : { signature: b.signature ?? 'c2ln' };
+      if (b.alg !== null) data.alg = b.alg ?? 'ES256'; // null => the host omitted it
+      this.emit({ type: 'rootherald-response', requestId, success: true, data });
       return;
     }
 
     if (req.action === 'enroll-begin') {
       if (b.enrollBeginHangs) return;
-      if (b.extensionPresent === false) return; // no relay at all
       if (b.hostPresent === false) return void this.hostFailure(requestId);
       this.emit({
         type: 'rootherald-response',
@@ -158,7 +194,6 @@ export class FakeWindow implements MessageWindow {
     if (req.action === 'enroll-complete') {
       this.lastChallenge = req.challenge;
       if (b.enrollCompleteHangs) return;
-      if (b.extensionPresent === false) return;
       if (b.hostPresent === false) return void this.hostFailure(requestId);
       this.emit({
         type: 'rootherald-response',
@@ -170,6 +205,14 @@ export class FakeWindow implements MessageWindow {
       });
       return;
     }
+
+    // What a real host says to an action it does not know.
+    this.emit({
+      type: 'rootherald-response',
+      requestId,
+      success: false,
+      error: `rh:unknown_action:unknown action "${String(req.action)}"`,
+    });
   }
 
   private emit(data: Record<string, unknown>): void {

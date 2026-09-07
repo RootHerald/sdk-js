@@ -23,9 +23,13 @@ export type {
 } from "./sdk-api.js";
 
 export type {
+  Ask,
+  CertifiedKey,
   ChallengeRequest,
   ChallengeResponse,
   EvidenceBlob,
+  KeyBlob,
+  KeyCertification,
   RequestedDisclosureClass,
   VerifyAttestationRequest,
   VerifyAttestationResponse,

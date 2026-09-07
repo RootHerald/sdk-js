@@ -16,9 +16,11 @@
  */
 
 export {
+  AdmissionRefusedError,
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
+  PolicyDowngradeError,
   QuotaExceededError,
   RootHeraldApiError,
   UnknownPolicyError,
@@ -29,7 +31,7 @@ export {
 // The customer's backend relays the client's opaque blobs to RootHerald with
 // its `rh_sk_` secret. The four legs and their request/response shapes:
 //
-//   relayEnroll(EnrollRequestBlob)        -> EnrollActivationChallenge
+//   relayEnroll(RelayEnrollRequest)       -> EnrollActivationChallenge
 //                                            POST /api/v1/attest/enroll
 //   relayActivate(EnrollActivationResponse) -> RelayActivateResponse
 //                                            POST /api/v1/attest/activate
@@ -50,9 +52,13 @@ export type {
 } from "./enroll.js";
 
 export type {
+  Ask,
+  CertifiedKey,
   ChallengeRequest,
   ChallengeResponse,
   EvidenceBlob,
+  KeyBlob,
+  KeyCertification,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "./background-check.js";
@@ -63,8 +69,21 @@ import type {
   EnrollActivationResponse,
 } from "./enroll.js";
 
-/** Request body of the enroll relay leg — `POST /api/v1/attest/enroll`. */
-export type RelayEnrollRequest = EnrollRequestBlob;
+/**
+ * Request body of the enroll relay leg — `POST /api/v1/attest/enroll`.
+ *
+ * The client's {@link EnrollRequestBlob}, plus the one field the backend adds.
+ */
+export interface RelayEnrollRequest extends EnrollRequestBlob {
+  /**
+   * A live challenge id from `issueChallenge`. When present, admission runs
+   * against the policy stored on that challenge instead of the tenant default,
+   * so a device that could never satisfy the policy is refused before it gets
+   * an AK. Refusal is `422 admission_refused` with the TPM class in the detail
+   * (see {@link AdmissionRefusedError}).
+   */
+  challengeId?: string;
+}
 
 /** Response of the enroll relay leg — the MakeCredential challenge. */
 export type RelayEnrollResponse = EnrollActivationChallenge;

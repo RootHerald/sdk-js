@@ -1,18 +1,27 @@
 import { describe, it, expect, vi } from "vitest";
 import { RootHeraldClient } from "../src/client.js";
 import {
+  AdmissionRefusedError,
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
+  PolicyDowngradeError,
   QuotaExceededError,
   RootHeraldApiError,
-  RootHeraldError,
   UnknownPolicyError,
-} from "@rootherald/contracts";
+} from "@rootherald/contracts/server";
+import { RootHeraldError } from "@rootherald/contracts";
 import type { AttestationVerdict } from "@rootherald/contracts";
 
 const SK = "rh_sk_test_abc123";
 const BASE = "https://api.example.test";
+
+const CHALLENGE_WIRE = {
+  challengeId: "chal-1",
+  nonce: "bm9uY2U=",
+  expiresAt: "2026-01-01T00:00:00Z",
+  challenge: "rhc1.bm9uY2U.eyJhc2siOlsiaWRlbnRpdHkiLCJwb3N0dXJlIl19",
+};
 
 /** Builds a fetch mock that returns the given status/json for the next call. */
 function mockFetch(status: number, json: unknown): typeof fetch {
@@ -22,6 +31,10 @@ function mockFetch(status: number, json: unknown): typeof fetch {
       headers: { "Content-Type": "application/json" },
     }),
   ) as unknown as typeof fetch;
+}
+
+function calls(fetchMock: typeof fetch): [string, { method: string; headers: Record<string, string>; body: string }][] {
+  return (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls as never;
 }
 
 /** A minimal but shape-correct AttestationVerdict for verify responses. */
@@ -63,23 +76,15 @@ describe("RootHeraldClient constructor", () => {
 });
 
 describe("issueChallenge", () => {
-  it("sends the C1 request (URL, Bearer header, body) and parses the response", async () => {
-    const fetchMock = mockFetch(200, {
-      challengeId: "chal-1",
-      nonce: "bm9uY2U=",
-      expiresAt: "2026-01-01T00:00:00Z",
-    });
+  it("sends the C1 request (URL, Bearer header, body) and returns the whole response", async () => {
+    const fetchMock = mockFetch(200, CHALLENGE_WIRE);
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
     const out = await rh.issueChallenge({ deviceHint: "laptop-7" });
 
-    expect(out).toEqual({
-      challengeId: "chal-1",
-      nonce: "bm9uY2U=",
-      expiresAt: "2026-01-01T00:00:00Z",
-    });
+    expect(out).toEqual(CHALLENGE_WIRE);
 
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = calls(fetchMock)[0];
     expect(url).toBe(`${BASE}/api/v1/attest/challenge`);
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
@@ -87,21 +92,60 @@ describe("issueChallenge", () => {
     expect(JSON.parse(init.body)).toEqual({ deviceHint: "laptop-7" });
   });
 
-  it("omits deviceHint from the body when not provided", async () => {
-    const fetchMock = mockFetch(200, {
-      challengeId: "c",
-      nonce: "n",
-      expiresAt: "2026-01-01T00:00:00Z",
-    });
+  it("sends an empty body when no options are given (ask defaults server-side)", async () => {
+    const fetchMock = mockFetch(200, CHALLENGE_WIRE);
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     await rh.issueChallenge();
 
-    const [, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [, init] = calls(fetchMock)[0];
     expect(JSON.parse(init.body)).toEqual({});
+  });
+
+  it("sends ask, policy and keyPurpose", async () => {
+    const fetchMock = mockFetch(200, CHALLENGE_WIRE);
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    await rh.issueChallenge({
+      ask: ["identity", "key"],
+      policy: "rootherald:builtin:strict-hardware",
+      keyPurpose: "sign",
+    });
+
+    const [, init] = calls(fetchMock)[0];
+    expect(JSON.parse(init.body)).toEqual({
+      ask: ["identity", "key"],
+      policy: "rootherald:builtin:strict-hardware",
+      keyPurpose: "sign",
+    });
+  });
+
+  it("returns the challenge string verbatim", async () => {
+    const fetchMock = mockFetch(200, { ...CHALLENGE_WIRE, challenge: "rhc1.abc.def" });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const out = await rh.issueChallenge({ ask: ["posture"] });
+    expect(out.challenge).toBe("rhc1.abc.def");
+  });
+
+  it("rejects a response without the challenge string", async () => {
+    const { challenge: _omitted, ...withoutChallenge } = CHALLENGE_WIRE;
+    const fetchMock = mockFetch(200, withoutChallenge);
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.issueChallenge().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect((err as RootHeraldApiError).code).toBe("INVALID_RESPONSE");
+  });
+
+  it("defaults baseUrl to the canonical rootherald.io host", async () => {
+    const fetchMock = mockFetch(200, CHALLENGE_WIRE);
+    const rh = new RootHeraldClient({ secretKey: SK, fetch: fetchMock });
+    await rh.issueChallenge();
+
+    const [url] = calls(fetchMock)[0];
+    expect(url).toBe("https://rootherald.io/api/v1/attest/challenge");
   });
 });
 
-describe("attest", () => {
+describe("verify", () => {
   it("sends the C2 request shape with evidence passed through verbatim", async () => {
     const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
@@ -109,7 +153,7 @@ describe("attest", () => {
     const evidence = { quote: "AAAA", sig: "BBBB", pcrs: [1, 2, 3], nested: { x: true } };
     await rh.verify(evidence, { challengeId: "chal-1", policy: "rootherald:builtin:strict" });
 
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = calls(fetchMock)[0];
     expect(url).toBe(`${BASE}/api/v1/attest/verify`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     const body = JSON.parse(init.body);
@@ -145,19 +189,6 @@ describe("attest", () => {
     await expect(rh.verify({ blob: 1 }, {})).rejects.toThrow(RootHeraldError);
   });
 
-  it("defaults baseUrl to the canonical rootherald.io host", async () => {
-    const fetchMock = mockFetch(200, {
-      challengeId: "c",
-      nonce: "n",
-      expiresAt: "2026-01-01T00:00:00Z",
-    });
-    const rh = new RootHeraldClient({ secretKey: SK, fetch: fetchMock });
-    await rh.issueChallenge();
-
-    const [url] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("https://rootherald.io/api/v1/attest/challenge");
-  });
-
   it("passes cohort fields on verdict.device through verbatim", async () => {
     const verdict = sampleVerdict();
     verdict.device.cohortKey = "tpm20:win11:sb1:abc123";
@@ -178,7 +209,7 @@ describe("attest", () => {
     expect(out.device.novelProfile).toBe(false);
   });
 
-  it("parses ISO-8601 string dates from the REAL response shape into Date objects (F-09)", async () => {
+  it("parses ISO-8601 string dates from the REAL response shape into Date objects", async () => {
     // The server serializes .NET DateTimeOffset as ISO-8601 STRINGS, not JS
     // Date objects. Build the wire shape exactly as it arrives over HTTP so a
     // naive `as Date` cast would leave strings that throw on `.getTime()`.
@@ -205,11 +236,9 @@ describe("attest", () => {
 
     const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
 
-    // No throw, and the date fields are real Dates with the expected values.
     expect(out.authTime).toBeInstanceOf(Date);
     expect(out.expiresAt).toBeInstanceOf(Date);
     expect(out.device.attestedAt).toBeInstanceOf(Date);
-    // Calling .getTime() must NOT throw (the exact F-09 crash) and be correct.
     expect(() => out.authTime.getTime()).not.toThrow();
     expect(out.authTime.getTime()).toBe(Date.parse("2026-06-28T12:00:00Z"));
     expect(out.expiresAt.getTime()).toBe(Date.parse("2026-06-28T12:05:00Z"));
@@ -218,7 +247,7 @@ describe("attest", () => {
     );
   });
 
-  it("accepts epoch-number dates and existing Date objects too (F-09 robustness)", async () => {
+  it("accepts epoch-number dates and existing Date objects too", async () => {
     const epochMs = Date.UTC(2026, 5, 28, 12, 0, 0);
     const wireVerdict = {
       ...JSON.parse(JSON.stringify(sampleVerdict())),
@@ -243,12 +272,123 @@ describe("attest", () => {
     expect(out.device.cohortPrevalence).toBeUndefined();
     expect(out.device.novelProfile).toBeUndefined();
   });
+
+  it("sends requestedDisclosureClass in the body when supplied", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    await rh.verify(
+      { blob: 1 },
+      { challengeId: "chal-1", requestedDisclosureClass: "pseudonymous" },
+    );
+
+    const [, init] = calls(fetchMock)[0];
+    expect(JSON.parse(init.body).requestedDisclosureClass).toBe("pseudonymous");
+  });
+
+  it("omits requestedDisclosureClass from the body when not supplied", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    const [, init] = calls(fetchMock)[0];
+    expect("requestedDisclosureClass" in JSON.parse(init.body)).toBe(false);
+  });
+
+  // ── assuranceClaimsMet / enrollmentRequired / key come from the response ROOT ──
+  it("surfaces assuranceClaimsMet + enrollmentRequired from the response root", async () => {
+    const fetchMock = mockFetch(200, {
+      verdict: sampleVerdict(),
+      assuranceClaimsMet: ["device-bound", "fresh-attestation"],
+      enrollmentRequired: true,
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    expect(out.assuranceClaimsMet).toEqual(["device-bound", "fresh-attestation"]);
+    expect(out.enrollmentRequired).toBe(true);
+    expect(out.device.verdict).toBe("pass");
+  });
+
+  it("reads the root-level fields at the ROOT only, never from inside verdict", async () => {
+    // Decoy copies nested inside `verdict` with DIFFERENT values must be ignored;
+    // only the response-root siblings of `verdict` are surfaced.
+    const verdictWithDecoys = {
+      ...sampleVerdict(),
+      assuranceClaimsMet: ["NESTED-should-be-ignored"],
+      enrollmentRequired: false,
+      key: { keyId: "NESTED", jwk: { kty: "EC", crv: "P-256", x: "x", y: "y" }, purpose: "sign", certifiedAt: "2026-01-01T00:00:00Z" },
+    };
+    const fetchMock = mockFetch(200, {
+      verdict: verdictWithDecoys,
+      assuranceClaimsMet: ["root-claim"],
+      enrollmentRequired: true,
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    expect(out.assuranceClaimsMet).toEqual(["root-claim"]);
+    expect(out.enrollmentRequired).toBe(true);
+    // The root sent no key, so there is none — the nested decoy is not it.
+    expect(out.key).toBeUndefined();
+  });
+
+  it("omits assuranceClaimsMet + enrollmentRequired + key when the root does not send them", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    expect(out.assuranceClaimsMet).toBeUndefined();
+    expect(out.enrollmentRequired).toBeUndefined();
+    expect(out.key).toBeUndefined();
+  });
+
+  it("parses the certified key from the response root, with certifiedAt as a Date", async () => {
+    const fetchMock = mockFetch(200, {
+      verdict: sampleVerdict(),
+      key: {
+        keyId: "k-9f3a",
+        jwk: { kty: "EC", crv: "P-256", x: "eHh4", y: "eXl5" },
+        purpose: "sign",
+        authPolicy: "cG9saWN5",
+        certifiedAt: "2026-06-30T00:01:00Z",
+      },
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+
+    expect(out.key).toBeDefined();
+    expect(out.key!.keyId).toBe("k-9f3a");
+    expect(out.key!.jwk).toEqual({ kty: "EC", crv: "P-256", x: "eHh4", y: "eXl5" });
+    expect(out.key!.purpose).toBe("sign");
+    expect(out.key!.authPolicy).toBe("cG9saWN5");
+    expect(out.key!.certifiedAt).toBeInstanceOf(Date);
+    expect(out.key!.certifiedAt.getTime()).toBe(Date.parse("2026-06-30T00:01:00Z"));
+  });
+
+  it("drops a malformed key block rather than surfacing it half-parsed", async () => {
+    const fetchMock = mockFetch(200, {
+      verdict: sampleVerdict(),
+      key: { keyId: "k-1", jwk: { kty: "RSA", n: "…", e: "AQAB" }, purpose: "sign", certifiedAt: "2026-06-30T00:01:00Z" },
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
+    expect(out.key).toBeUndefined();
+  });
 });
 
 describe("error mapping", () => {
   const cases: Array<[number, string, new (...args: never[]) => RootHeraldApiError]> = [
     [401, "invalid_secret_key", InvalidSecretKeyError],
     [422, "unknown_policy", UnknownPolicyError],
+    [422, "admission_refused", AdmissionRefusedError],
+    [422, "policy_downgrade", PolicyDowngradeError],
     [409, "challenge_expired_or_used", ChallengeError],
     [400, "invalid_evidence", InvalidEvidenceError],
     [429, "quota_exceeded", QuotaExceededError],
@@ -270,6 +410,24 @@ describe("error mapping", () => {
     });
   }
 
+  it("maps a 422 with no body code to UnknownPolicyError", async () => {
+    const fetchMock = mockFetch(422, {});
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { challengeId: "chal-1" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnknownPolicyError);
+  });
+
+  it("carries the server's detail as the message on admission_refused", async () => {
+    const fetchMock = mockFetch(422, {
+      error: "admission_refused",
+      detail: "firmware TPM cannot satisfy discrete-TPM-only policy",
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { challengeId: "chal-1" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AdmissionRefusedError);
+    expect((err as Error).message).toContain("firmware TPM");
+  });
+
   it("maps an unmapped status (500) to a generic RootHeraldApiError", async () => {
     const fetchMock = mockFetch(500, { error: "internal" });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
@@ -278,128 +436,6 @@ describe("error mapping", () => {
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RootHeraldApiError);
     expect((err as RootHeraldApiError).status).toBe(500);
-  });
-});
-
-// ── ABI 2.0 canonical names: issueChallenge / verify ───────────────────────
-describe("issueChallenge (ABI 2.0 name for issueChallenge)", () => {
-  it("hits POST /api/v1/attest/challenge with the rh_sk_ bearer", async () => {
-    const fetchMock = mockFetch(200, {
-      challengeId: "chal-9",
-      nonce: "bm9uY2U=",
-      expiresAt: "2026-01-01T00:00:00Z",
-    });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    const out = await rh.issueChallenge({ deviceHint: "laptop-7" });
-    expect(out).toEqual({
-      challengeId: "chal-9",
-      nonce: "bm9uY2U=",
-      expiresAt: "2026-01-01T00:00:00Z",
-    });
-
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/attest/challenge`);
-    expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
-  });
-
-  it("issueChallenge is a thin alias that delegates to issueChallenge", async () => {
-    const fetchMock = mockFetch(200, { challengeId: "c", nonce: "n", expiresAt: "2026-01-01T00:00:00Z" });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-    const out = await rh.issueChallenge();
-    expect(out.challengeId).toBe("c");
-  });
-});
-
-describe("verify", () => {
-  it("hits POST /api/v1/attest/verify and returns the verdict", async () => {
-    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    const verdict = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
-    expect(verdict.device.verdict).toBe("pass");
-
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe(`${BASE}/api/v1/attest/verify`);
-    expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
-  });
-
-  it("throws when challengeId is missing", async () => {
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, {}) });
-    // @ts-expect-error intentionally omitting challengeId
-    await expect(rh.verify({ blob: 1 }, {})).rejects.toThrow(RootHeraldError);
-  });
-
-  it("sends requestedDisclosureClass in the body when supplied", async () => {
-    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    await rh.verify(
-      { blob: 1 },
-      { challengeId: "chal-1", requestedDisclosureClass: "pseudonymous" },
-    );
-
-    const [, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(JSON.parse(init.body).requestedDisclosureClass).toBe("pseudonymous");
-  });
-
-  it("omits requestedDisclosureClass from the body when not supplied", async () => {
-    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
-
-    const [, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect("requestedDisclosureClass" in JSON.parse(init.body)).toBe(false);
-  });
-
-  // ── G1: assuranceClaimsMet / enrollmentRequired come from the response ROOT ──
-  it("surfaces assuranceClaimsMet + enrollmentRequired from the response root (G1)", async () => {
-    const fetchMock = mockFetch(200, {
-      verdict: sampleVerdict(),
-      assuranceClaimsMet: ["device-bound", "fresh-attestation"],
-      enrollmentRequired: true,
-    });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
-
-    expect(out.assuranceClaimsMet).toEqual(["device-bound", "fresh-attestation"]);
-    expect(out.enrollmentRequired).toBe(true);
-    // Still a normal verdict alongside the root-level fields.
-    expect(out.device.verdict).toBe("pass");
-  });
-
-  it("reads assuranceClaimsMet + enrollmentRequired at the ROOT only, never from inside verdict (G1)", async () => {
-    // Decoy copies nested inside `verdict` with DIFFERENT values must be ignored;
-    // only the response-root siblings of `verdict` are surfaced.
-    const verdictWithDecoys = {
-      ...sampleVerdict(),
-      assuranceClaimsMet: ["NESTED-should-be-ignored"],
-      enrollmentRequired: false,
-    };
-    const fetchMock = mockFetch(200, {
-      verdict: verdictWithDecoys,
-      assuranceClaimsMet: ["root-claim"],
-      enrollmentRequired: true,
-    });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
-
-    // Root wins; the nested decoys are never picked up.
-    expect(out.assuranceClaimsMet).toEqual(["root-claim"]);
-    expect(out.enrollmentRequired).toBe(true);
-  });
-
-  it("omits assuranceClaimsMet + enrollmentRequired when the root does not send them (G1)", async () => {
-    const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
-    const out = await rh.verify({ blob: 1 }, { challengeId: "chal-1" });
-
-    expect(out.assuranceClaimsMet).toBeUndefined();
-    expect(out.enrollmentRequired).toBeUndefined();
   });
 });
 
@@ -429,15 +465,43 @@ describe("relayEnroll", () => {
       encryptedSecret: "<base64 secret>",
     });
 
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = calls(fetchMock)[0];
     expect(url).toBe(`${BASE}/api/v1/attest/enroll`);
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     expect(JSON.parse(init.body)).toEqual(enrollBlob); // relayed verbatim
   });
 
-  
-  
+  it("appends ?challengeId= when given, leaving the body untouched", async () => {
+    const fetchMock = mockFetch(201, {
+      deviceId: "dev-uuid-1",
+      credentialBlob: "<base64 id-object>",
+      encryptedSecret: "<base64 secret>",
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    await rh.relayEnroll(enrollBlob, { challengeId: "chal 1/&" });
+
+    const [url, init] = calls(fetchMock)[0];
+    expect(url).toBe(`${BASE}/api/v1/attest/enroll?challengeId=chal%201%2F%26`);
+    expect(JSON.parse(init.body)).toEqual(enrollBlob);
+  });
+
+  it("rejects an empty challengeId before any fetch", async () => {
+    const fetchMock = mockFetch(201, {});
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    await expect(rh.relayEnroll(enrollBlob, { challengeId: "" })).rejects.toThrow(RootHeraldError);
+    expect(calls(fetchMock).length).toBe(0);
+  });
+
+  it("maps 422 admission_refused to AdmissionRefusedError", async () => {
+    const fetchMock = mockFetch(422, { error: "admission_refused", detail: "firmware TPM" });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.relayEnroll(enrollBlob, { challengeId: "chal-1" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AdmissionRefusedError);
+    expect((err as RootHeraldApiError).errorCode).toBe("admission_refused");
+  });
+
   it("throws INVALID_RESPONSE when a 201 is missing credential material", async () => {
     const fetchMock = mockFetch(201, { deviceId: "dev-1" }); // no credentialBlob/encryptedSecret
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
@@ -457,7 +521,7 @@ describe("relayEnroll", () => {
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     // @ts-expect-error intentionally missing required fields
     await expect(rh.relayEnroll({ platform: "windows" })).rejects.toThrow(RootHeraldError);
-    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    expect(calls(fetchMock).length).toBe(0);
   });
 });
 
@@ -482,7 +546,7 @@ describe("relayActivate", () => {
       enrolledAt: "2026-06-30T00:00:00Z",
     });
 
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = calls(fetchMock)[0];
     expect(url).toBe(`${BASE}/api/v1/attest/activate`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     expect(JSON.parse(init.body)).toEqual(activateBlob); // relayed verbatim
@@ -500,7 +564,7 @@ describe("relayActivate", () => {
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     // @ts-expect-error intentionally missing decryptedSecret
     await expect(rh.relayActivate({ deviceId: "d" })).rejects.toThrow(RootHeraldError);
-    expect((fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+    expect(calls(fetchMock).length).toBe(0);
   });
 
   it("maps a 409 challenge error from activate to ChallengeError", async () => {
@@ -522,9 +586,8 @@ describe("verifyMobileEvidence (mobile bridge)", () => {
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     const result = await rh.verifyMobileEvidence(appVerifyBody);
     expect(result.device.verdict).toBe("pass");
-    // Called the verify endpoint with the challengeId + iosAttestation evidence.
-    const [, init] = (fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
-    const sent = JSON.parse((init as { body: string }).body);
+    const [, init] = calls(fetchMock)[0];
+    const sent = JSON.parse(init.body);
     expect(sent.challengeId).toBe("chal-1");
     expect(sent.evidence.iosAttestation.keyId).toBe("b64key");
   });

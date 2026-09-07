@@ -22,10 +22,15 @@ npm install @rootherald/contracts
   `TrustworthinessVector`.
 - **Background-Check wire types**: `ChallengeRequest` / `ChallengeResponse`,
   `EvidenceBlob`, `VerifyAttestationRequest` / `VerifyAttestationResponse`.
-- **Client ABI 2.0 enroll blobs** (client-neutral): `EnrollRequestBlob`,
-  `EnrollActivationChallenge`, `EnrollActivationResponse`. The three client
-  verbs are Enroll (begin/complete), Attest, and PreCheck; the client holds no
-  RootHerald key and opens no socket to RootHerald.
+  The challenge carries the ask (`Ask`: `identity` / `posture` / `key`); a
+  `key` ask certifies a TPM-resident signing key and returns it as
+  `CertifiedKey`, with `KeyCertification` documenting the evidence field and
+  `KeyBlob` the opaque handle the caller keeps.
+- **Client ABI enroll blobs** (client-neutral): `EnrollRequestBlob`,
+  `EnrollActivationChallenge`, `EnrollActivationResponse`. The client verbs are
+  Open/Close, PreCheck, EnrollBegin/EnrollComplete, Respond, and
+  LoadKey/Sign/CloseKey; the client holds no RootHerald key and opens no socket
+  to RootHerald.
 - **Backend relay contract** (server-context, on `/server`): `RelayEnrollRequest`
   / `RelayEnrollResponse` (+ the `409` `AlreadyEnrolledResponse` and the
   normalized `RelayEnrollResult` discriminated union), `RelayActivateRequest` /
@@ -52,6 +57,8 @@ on the `rh_sk_` path, via `@rootherald/node` or another server SDK):
 
 - `InvalidSecretKeyError`: the `rh_sk_` secret is missing/malformed/rejected (401).
 - `UnknownPolicyError`: the named policy is unknown/foreign (422).
+- `AdmissionRefusedError`: enrolment refused because the device can never
+  satisfy the challenge's policy; the message names the TPM class (422).
 - `QuotaExceededError`: the tenant exceeded its metered verify quota (429).
 - `ChallengeError`: the challenge expired or was already used (409).
 - `InvalidEvidenceError`: the evidence blob was malformed/unappraisable (400).
