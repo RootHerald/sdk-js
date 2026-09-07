@@ -2,19 +2,27 @@
  * Client ABI 2.0 — the enroll handshake blobs (client-neutral).
  *
  * ──────────────────────────────────────────────────────────────────────────
- * The three client verbs (language-neutral; the client holds NO RootHerald key
- * and opens NO socket to RootHerald — it only does local TPM work and hands
- * opaque blobs to the embedder, whose backend relays them):
+ * The client verbs (Client ABI 6.0; language-neutral; the client holds NO
+ * RootHerald key and opens NO socket to RootHerald — it only does local TPM
+ * work and hands opaque blobs to the embedder, whose backend relays them):
  *
- *   1. Enroll  — `EnrollBegin() -> EnrollRequestBlob`, then
- *                `EnrollComplete(EnrollActivationChallenge) -> EnrollActivationResponse`
- *                (+ `deviceId`, known after leg 1). One-time device-key
- *                bootstrap under a single elevation: gen AK, prove EK→AK via
- *                TPM2_MakeCredential / TPM2_ActivateCredential.
- *   2. Attest  — `Attest(nonce) -> EvidenceBlob` (see `background-check.ts`).
- *                Per-attestation TPM quote over a backend-issued nonce.
- *   3. PreCheck — local readiness signals (TPM reachable? enrolled? Secure Boot
- *                on?). Signals, NEVER a verdict.
+ *   Open / Close     — acquire and release the TPM session every other verb
+ *                      runs inside.
+ *   PreCheck         — local readiness signals (TPM reachable? enrolled? Secure
+ *                      Boot on?). Signals, NEVER a verdict.
+ *   EnrollBegin      — `-> EnrollRequestBlob`. Then
+ *   EnrollComplete   — `(EnrollActivationChallenge) -> EnrollActivationResponse`
+ *                      (+ `deviceId`, known after leg 1). One-time device-key
+ *                      bootstrap under a single elevation: gen AK, prove EK→AK
+ *                      via TPM2_MakeCredential / TPM2_ActivateCredential.
+ *   Respond          — `(challenge) -> EvidenceBlob` (see `background-check.ts`).
+ *                      Takes the `rhc1.` challenge string verbatim, does what
+ *                      its ask says (quote, event log, key certification), and
+ *                      when the ask included "key" also returns the `KeyBlob`
+ *                      the caller keeps.
+ *   LoadKey / Sign / CloseKey
+ *                    — load a `KeyBlob` back into the TPM, sign with it, and
+ *                      release it. The private half never leaves the TPM.
  *
  * The blobs below are produced/consumed by the client but never inspected by the
  * SDK transport; the customer's backend relays them to RootHerald with its
