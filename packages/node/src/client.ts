@@ -4,14 +4,17 @@
  * The customer's dumb client collects an opaque evidence blob (no keys, no
  * RootHerald contact) and hands it to the customer's own server. The server
  * uses this client, authenticated with its `rh_sk_` secret key, to:
- *   1. mint a relay-friendly nonce  (`issueChallenge`)
- *   2. submit the evidence for appraisal and get a verdict  (`attest`)
+ *   1. mint a challenge that carries the ask  (`issueChallenge`)
+ *   2. submit the evidence for appraisal and get a verdict  (`verify`)
  *
  * Network calls use the built-in global `fetch` (Node 18+) — no HTTP library.
  */
 
 import type {
+  Ask,
   AttestationVerdict,
+  CertifiedKey,
+  ChallengeRequest,
   ChallengeResponse,
   EvidenceBlob,
   MobileAppVerifyRequest,
@@ -21,9 +24,11 @@ import type {
 } from "@rootherald/contracts";
 import { RootHeraldError } from "@rootherald/contracts";
 import {
+  AdmissionRefusedError,
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
+  PolicyDowngradeError,
   QuotaExceededError,
   RootHeraldApiError,
   UnknownPolicyError,
@@ -79,7 +84,7 @@ function requireSecureBaseUrl(baseUrl: string): string {
   );
 }
 
-/** Options for constructing a {@link RootHerald} server client. */
+/** Options for constructing a {@link RootHeraldClient}. */
 export interface RootHeraldClientOptions {
   /**
    * Your RootHerald **secret** key (`rh_sk_…`). Required. Used server-side as a
@@ -99,15 +104,33 @@ export interface RootHeraldClientOptions {
 export interface IssueChallengeOptions {
   /** Optional advisory hint identifying the device. */
   deviceHint?: string;
+  /**
+   * What the device is asked to prove. Omitted => `["identity", "posture"]`.
+   * Fixed on the challenge; `verify` appraises against it.
+   */
+  ask?: Ask[];
+  /**
+   * Caller-named policy to bind to the challenge: a tenant-owned policy
+   * id/name or a `rootherald:builtin:*` name. Unknown/foreign names fail
+   * closed (422). `verify` may name a stricter policy but not a weaker one.
+   */
+  policy?: string;
+  /**
+   * What the certified key will be used for. Read only when `ask` contains
+   * `"key"`. `"sign"` is the only purpose today.
+   */
+  keyPurpose?: "sign";
 }
 
-/** Options for {@link RootHeraldClient.attest}. */
+/** Options for {@link RootHeraldClient.verify}. */
 export interface AttestOptions {
   /** The single-use challenge id from {@link RootHeraldClient.issueChallenge}. */
   challengeId: string;
   /**
    * Caller-named policy: a tenant-owned policy id/name or a
    * `rootherald:builtin:*` name. Unknown/foreign names fail closed (422).
+   * When the challenge carries a policy, this may only tighten it; a weaker
+   * policy is refused with {@link PolicyDowngradeError}.
    */
   policy?: string;
   /**
@@ -119,10 +142,21 @@ export interface AttestOptions {
 }
 
 /**
+ * The certified signing key as {@link RootHeraldClient.verify} returns it:
+ * the wire {@link CertifiedKey} with `certifiedAt` parsed to a `Date`, the
+ * same treatment the verdict's own timestamps get.
+ */
+export type AttestResultKey = Omit<CertifiedKey, "certifiedAt"> & {
+  /** When the key was certified. */
+  certifiedAt: Date;
+};
+
+/**
  * Verdict plus the response top-level fields, as returned by
- * {@link RootHeraldClient.verify}. `assuranceClaimsMet` and `enrollmentRequired` are
- * surfaced verbatim from the server response so callers can gate capabilities
- * and drive the enroll-on-miss flow (they are NOT part of the nested verdict).
+ * {@link RootHeraldClient.verify}. `assuranceClaimsMet`, `enrollmentRequired`
+ * and `key` are surfaced from the response root so callers can gate
+ * capabilities, drive the enroll-on-miss flow, and keep the certified key
+ * (they are NOT part of the nested verdict).
  */
 export type AttestResult = AttestationVerdict & {
   /**
@@ -135,7 +169,24 @@ export type AttestResult = AttestationVerdict & {
    * enroll / re-attestation flow before trusting the verdict.
    */
   enrollmentRequired?: boolean;
+  /**
+   * The TPM-resident signing key the appraisal certified. Present only when
+   * the challenge asked for `"key"` and the verdict passed. Verify later
+   * signatures from it with {@link verifyKeySignature}.
+   */
+  key?: AttestResultKey;
 };
+
+/** Options for {@link RootHeraldClient.relayEnroll}. */
+export interface RelayEnrollOptions {
+  /**
+   * A live challenge id from {@link RootHeraldClient.issueChallenge}. When
+   * given, admission runs against the policy bound to that challenge instead
+   * of the tenant default, so a device that could never satisfy it is refused
+   * (with {@link AdmissionRefusedError}) before it gets an attestation key.
+   */
+  challengeId?: string;
+}
 
 /**
  * Server-side RootHerald client for the Background-Check flow.
@@ -143,10 +194,10 @@ export type AttestResult = AttestationVerdict & {
  * @example
  * ```ts
  * const rh = new RootHeraldClient({ secretKey: process.env.RH_SECRET_KEY! });
- * const { challengeId, nonce } = await rh.issueChallenge();
- * // relay `nonce` to the client; client quotes over it and returns `evidence`
- * const verdict = await rh.verify(evidence, { challengeId, policy: "default" });
- * if (verdict.device.verdict === "pass") { ... }
+ * const { challengeId, challenge } = await rh.issueChallenge({ ask: ["identity"] });
+ * // relay `challenge` to the client; it responds with `evidence`
+ * const result = await rh.verify(evidence, { challengeId });
+ * if (result.device.verdict === "pass") { ... }
  * ```
  */
 export class RootHeraldClient {
@@ -183,14 +234,17 @@ export class RootHeraldClient {
   }
 
   /**
-   * `POST /api/v1/attest/challenge` — mints a fresh, relay-friendly nonce
-   * (freshness / anti-replay). Relay `nonce` to the client; the client quotes
-   * over it, then submit the resulting evidence with {@link verify} using the
-   * returned `challengeId`.
+   * `POST /api/v1/attest/challenge` — mints a single-use challenge that
+   * carries the ask. Relay the `challenge` string to the client verbatim; it
+   * responds with an evidence blob, which you submit with {@link verify} under
+   * the returned `challengeId`.
    */
   async issueChallenge(opts?: IssueChallengeOptions): Promise<ChallengeResponse> {
-    const body: { deviceHint?: string } = {};
+    const body: ChallengeRequest = {};
     if (opts?.deviceHint !== undefined) body.deviceHint = opts.deviceHint;
+    if (opts?.ask !== undefined) body.ask = opts.ask;
+    if (opts?.policy !== undefined) body.policy = opts.policy;
+    if (opts?.keyPurpose !== undefined) body.keyPurpose = opts.keyPurpose;
 
     const data = await this.post<ChallengeResponse>(
       "/api/v1/attest/challenge",
@@ -199,10 +253,11 @@ export class RootHeraldClient {
     if (
       typeof data?.challengeId !== "string" ||
       typeof data?.nonce !== "string" ||
-      typeof data?.expiresAt !== "string"
+      typeof data?.expiresAt !== "string" ||
+      typeof data?.challenge !== "string"
     ) {
       throw new RootHeraldApiError(
-        "challenge response missing challengeId/nonce/expiresAt",
+        "challenge response missing challengeId/nonce/expiresAt/challenge",
         "INVALID_RESPONSE",
         200,
       );
@@ -211,6 +266,7 @@ export class RootHeraldClient {
       challengeId: data.challengeId,
       nonce: data.nonce,
       expiresAt: data.expiresAt,
+      challenge: data.challenge,
     };
   }
 
@@ -224,7 +280,7 @@ export class RootHeraldClient {
    * verdict with a `fail` (or `warn`) result. Only protocol/auth/quota problems
    * raise a typed {@link RootHeraldApiError}.
    *
-   * @param evidence  Opaque blob from the client collector; passed through verbatim.
+   * @param evidence  Opaque blob from the client; passed through verbatim.
    */
   async verify(evidence: EvidenceBlob, opts: AttestOptions): Promise<AttestResult> {
     if (!opts || typeof opts.challengeId !== "string" || !opts.challengeId) {
@@ -256,14 +312,24 @@ export class RootHeraldClient {
     }
     const result = normalizeVerdictDates(data.verdict as AttestResult);
     // Surface the response top-level fields the server sends alongside the
-    // verdict — customers gate capabilities on `assuranceClaimsMet` and drive
-    // the enroll-on-miss flow on `enrollmentRequired`. These live at the
-    // response root, NOT inside `verdict`.
+    // verdict. These live at the response root, NOT inside `verdict`; a
+    // same-named field inside the verdict is never read, and is removed so it
+    // cannot pose as the root one.
     if (Array.isArray(data.assuranceClaimsMet)) {
       result.assuranceClaimsMet = data.assuranceClaimsMet;
+    } else {
+      delete result.assuranceClaimsMet;
     }
     if (typeof data.enrollmentRequired === "boolean") {
       result.enrollmentRequired = data.enrollmentRequired;
+    } else {
+      delete result.enrollmentRequired;
+    }
+    const key = toCertifiedKey(data.key);
+    if (key) {
+      result.key = key;
+    } else {
+      delete result.key;
     }
     return result;
   }
@@ -315,11 +381,16 @@ export class RootHeraldClient {
    * `EnrollComplete`, whose result goes to {@link relayActivate}.
    *
    * `deviceId` is this tenant's alias for the device, not a global identifier.
+   * Every enroll returns a challenge, including for a device already known:
+   * re-enrolment is how a device rotates its attestation key.
    *
    * The client never holds the `rh_sk_` key and never talks to RootHerald; this
    * backend helper is the only thing that does.
    */
-  async relayEnroll(enrollRequestBlob: EnrollRequestBlob): Promise<RelayEnrollResult> {
+  async relayEnroll(
+    enrollRequestBlob: EnrollRequestBlob,
+    opts?: RelayEnrollOptions,
+  ): Promise<RelayEnrollResult> {
     if (
       !enrollRequestBlob ||
       typeof enrollRequestBlob.ekPublicKey !== "string" ||
@@ -331,13 +402,18 @@ export class RootHeraldClient {
       );
     }
 
-    const res = await this.rawPost("/api/v1/attest/enroll", enrollRequestBlob);
-
-    if (!res.ok) {
-      throw await toApiError(res);
+    let path = "/api/v1/attest/enroll";
+    if (opts?.challengeId !== undefined) {
+      if (typeof opts.challengeId !== "string" || !opts.challengeId) {
+        throw new RootHeraldError(
+          "relayEnroll() `challengeId` must be a non-empty string when given",
+          "MISSING_CHALLENGE_ID",
+        );
+      }
+      path += `?challengeId=${encodeURIComponent(opts.challengeId)}`;
     }
 
-    const data = await parseJson<EnrollActivationChallenge>(res);
+    const data = await this.post<EnrollActivationChallenge>(path, enrollRequestBlob);
     if (
       !data ||
       typeof data.deviceId !== "string" ||
@@ -347,7 +423,7 @@ export class RootHeraldClient {
       throw new RootHeraldApiError(
         "enroll response missing deviceId/credentialBlob/encryptedSecret",
         "INVALID_RESPONSE",
-        res.status,
+        201,
       );
     }
     return { deviceId: data.deviceId, challenge: data };
@@ -358,7 +434,6 @@ export class RootHeraldClient {
    *
    * Relays the client's `EnrollComplete()` blob (the decrypted credential
    * secret) to RootHerald, completing the EK→AK credential-activation handshake.
-   * Call this only when {@link relayEnroll} returned `alreadyEnrolled: false`.
    *
    * Returns the terminal `{ deviceId, status?, enrolledAt? }` body; `deviceId`
    * is the load-bearing field the backend maps to its user.
@@ -395,15 +470,11 @@ export class RootHeraldClient {
     return result;
   }
 
-  /**
-   * Issues an authenticated JSON POST, returning the raw {@link Response}. Maps
-   * only transport failures to a `NETWORK_ERROR`; status interpretation is left
-   * to the caller (used by relay legs that must inspect specific statuses such
-   * as the enroll `409`).
-   */
-  private async rawPost(path: string, body: unknown): Promise<Response> {
+  /** Issues an authenticated JSON POST and maps non-2xx responses to typed errors. */
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    let res: Response;
     try {
-      return await this.fetchImpl(`${this.baseUrl}${path}`, {
+      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.secretKey}`,
@@ -416,11 +487,6 @@ export class RootHeraldClient {
       const msg = err instanceof Error ? err.message : String(err);
       throw new RootHeraldError(`network request failed: ${msg}`, "NETWORK_ERROR", err);
     }
-  }
-
-  /** Issues an authenticated JSON POST and maps non-2xx responses to typed errors. */
-  private async post<T>(path: string, body: unknown): Promise<T> {
-    const res = await this.rawPost(path, body);
     if (!res.ok) {
       throw await toApiError(res);
     }
@@ -445,24 +511,7 @@ async function parseJson<T>(res: Response): Promise<T> {
 }
 
 /**
- * Reads a response body as a plain object, unknown-safely. Returns `{}` for a
- * non-object or unparseable body so callers can probe individual fields without
- * throwing on an empty/odd body.
- */
-async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
-  try {
-    const parsed: unknown = await res.json();
-    if (parsed && typeof parsed === "object") {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    // fall through
-  }
-  return {};
-}
-
-/**
- * Robustly coerce a server-supplied timestamp into a `Date`.
+ * Coerce a server-supplied timestamp into a `Date`.
  *
  * The RootHerald API serializes .NET `DateTimeOffset` values as ISO-8601
  * STRINGS (e.g. `"2026-06-28T12:34:56Z"`), not as JS `Date` objects or epoch
@@ -470,8 +519,6 @@ async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
  * consumer calling `.getTime()` on `verdict.expiresAt` throws
  * `getTime is not a function`. This accepts a string (ISO-8601), a number
  * (epoch milliseconds), or an existing `Date`, and always returns a `Date`.
- * Epoch SECONDS from the JWT path are handled in verify.ts (`* 1000`); the
- * JSON body uses ISO strings, which `new Date(string)` parses directly.
  */
 function toDate(value: unknown): Date {
   if (value instanceof Date) return value;
@@ -479,7 +526,7 @@ function toDate(value: unknown): Date {
     return new Date(value);
   }
   // Undefined/null/object: produce an Invalid Date rather than throwing, so a
-  // malformed timestamp degrades gracefully instead of crashing `attest()`.
+  // malformed timestamp degrades gracefully instead of crashing `verify()`.
   return new Date(NaN);
 }
 
@@ -497,6 +544,37 @@ function normalizeVerdictDates(result: AttestResult): AttestResult {
   return result;
 }
 
+/**
+ * Read the response-root `key` block. Anything that is not a well-formed
+ * P-256 certified key is dropped rather than surfaced half-parsed: a caller
+ * that then calls `verifyKeySignature` with it would silently get `false`.
+ */
+function toCertifiedKey(value: unknown): AttestResultKey | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const k = value as Record<string, unknown>;
+  const jwk = k.jwk as Record<string, unknown> | undefined;
+  if (
+    typeof k.keyId !== "string" ||
+    !jwk ||
+    typeof jwk !== "object" ||
+    jwk.kty !== "EC" ||
+    jwk.crv !== "P-256" ||
+    typeof jwk.x !== "string" ||
+    typeof jwk.y !== "string" ||
+    k.purpose !== "sign"
+  ) {
+    return undefined;
+  }
+  const key: AttestResultKey = {
+    keyId: k.keyId,
+    jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
+    purpose: "sign",
+    certifiedAt: toDate(k.certifiedAt),
+  };
+  if (typeof k.authPolicy === "string") key.authPolicy = k.authPolicy;
+  return key;
+}
+
 /** Parses an error response body, unknown-safely, and returns its `error`/`message`. */
 async function readErrorBody(res: Response): Promise<{ errorCode?: string; message?: string }> {
   try {
@@ -507,9 +585,11 @@ async function readErrorBody(res: Response): Promise<{ errorCode?: string; messa
       const message =
         typeof rec.message === "string"
           ? rec.message
-          : typeof rec.error_description === "string"
-            ? rec.error_description
-            : undefined;
+          : typeof rec.detail === "string"
+            ? rec.detail
+            : typeof rec.error_description === "string"
+              ? rec.error_description
+              : undefined;
       return { errorCode, message };
     }
   } catch {
@@ -525,7 +605,17 @@ async function toApiError(res: Response): Promise<RootHeraldError> {
     case 401:
       return new InvalidSecretKeyError(message, errorCode);
     case 422:
-      return new UnknownPolicyError(message, errorCode);
+      // Three refusals share the status; the body's `error` tells them apart.
+      // An unknown or foreign policy is the default because it is what a 422
+      // meant before the other two existed.
+      switch (errorCode) {
+        case "admission_refused":
+          return new AdmissionRefusedError(message, errorCode);
+        case "policy_downgrade":
+          return new PolicyDowngradeError(message, errorCode);
+        default:
+          return new UnknownPolicyError(message, errorCode);
+      }
     case 409:
       return new ChallengeError(message, errorCode);
     case 400:
