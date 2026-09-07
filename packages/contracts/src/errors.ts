@@ -127,3 +127,16 @@ export class AdmissionRefusedError extends RootHeraldApiError {
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
+
+/**
+ * 422 — the verify leg named a policy weaker than the one the challenge was
+ * issued with. The ask and policy are fixed at `issueChallenge`; `verify` may
+ * tighten them but never loosen them.
+ */
+export class PolicyDowngradeError extends RootHeraldApiError {
+  constructor(message = "policy downgrade refused", errorCode?: string, cause?: unknown) {
+    super(message, "POLICY_DOWNGRADE", 422, errorCode, cause);
+    this.name = "PolicyDowngradeError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}

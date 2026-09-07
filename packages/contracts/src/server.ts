@@ -20,6 +20,7 @@ export {
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
+  PolicyDowngradeError,
   QuotaExceededError,
   RootHeraldApiError,
   UnknownPolicyError,

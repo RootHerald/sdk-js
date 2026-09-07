@@ -84,11 +84,9 @@ export interface EnrollRequestBlob {
  *
  * Mirrors the server `EnrollmentResponse` DTO. `credentialBlob` and
  * `encryptedSecret` are the `TPM2_MakeCredential` outputs (already TPM2B-framed);
- * the client feeds them straight into `TPM2_ActivateCredential`.
- *
- * NOTE: a `409 already-enrolled` short-circuit returns only `deviceId` (no
- * credential material). The relay helper handles that case; this type models the
- * normal `201` begin→complete path where all three fields are present.
+ * the client feeds them straight into `TPM2_ActivateCredential`. Every enroll
+ * returns all three fields, including a re-enrol of a known device: re-enrolment
+ * is how a device rotates its attestation key.
  */
 export interface EnrollActivationChallenge {
   /** The deterministic device id (UUID), derived server-side from the EK. */
