@@ -3,8 +3,10 @@ import {
   ROOTHERALD_EXTENSION_ID,
   ROOTHERALD_NATIVE_HOST_NAME,
   ACTION_PING,
-  ACTION_COLLECT,
+  ACTION_RESPOND,
+  ACTION_SIGN,
   ACTION_STATUS,
+  ACTION_POSTURE,
   ACTION_ENROLL_BEGIN,
   ACTION_ENROLL_COMPLETE,
   REQUEST_TYPE,
@@ -25,8 +27,10 @@ describe('constants', () => {
     expect(REQUEST_TYPE).toBe('rootherald-request');
     expect(RESPONSE_TYPE).toBe('rootherald-response');
     expect(ACTION_PING).toBe('ping');
-    expect(ACTION_COLLECT).toBe('collect');
+    expect(ACTION_RESPOND).toBe('respond');
+    expect(ACTION_SIGN).toBe('sign');
     expect(ACTION_STATUS).toBe('status');
+    expect(ACTION_POSTURE).toBe('posture');
     expect(ACTION_ENROLL_BEGIN).toBe('enroll-begin');
     expect(ACTION_ENROLL_COMPLETE).toBe('enroll-complete');
   });

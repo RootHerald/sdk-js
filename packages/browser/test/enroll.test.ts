@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { enroll, type EnrollRelay } from '../src/enroll.js';
-import { ExtensionMissingError, HostMissingError, TimeoutError } from '../src/errors.js';
+import { AbiMismatchError, ExtensionMissingError, HostMissingError, TimeoutError } from '../src/errors.js';
 import { FakeWindow } from './fake-window.js';
 import type {
   EnrollActivationChallenge,
@@ -87,6 +87,16 @@ describe('enroll (keyless, backend-relayed)', () => {
     );
   });
 
+  it('maps a host abi_mismatch token to AbiMismatchError', async () => {
+    const win = new FakeWindow({
+      extensionPresent: true,
+      hostPresent: false,
+      hostError: 'rh:abi_mismatch:host speaks ABI 5.0',
+    });
+    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
+    await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(AbiMismatchError);
+  });
+
   it('classifies an explicit "timed out" host error as TimeoutError', async () => {
     const win = new FakeWindow({
       extensionPresent: true,
@@ -117,7 +127,6 @@ describe('enroll (keyless, backend-relayed)', () => {
       enrollCompleteNoBlob: true,
     });
     const relay = makeRelay({
-      alreadyEnrolled: false,
       deviceId: 'dev-fresh',
       challenge: CHALLENGE,
     });

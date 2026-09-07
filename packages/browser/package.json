@@ -1,7 +1,7 @@
 {
   "name": "@rootherald/browser",
-  "version": "0.1.0-alpha.13",
-  "description": "Browser SDK for Root Herald — brokers device-evidence collection through the RootHerald browser extension and exposes cold-start client detection",
+  "version": "0.1.0-alpha.14",
+  "description": "Browser SDK for RootHerald — responds to attestation challenges and signs with certified keys through the RootHerald browser extension, and exposes cold-start client detection",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -17,11 +17,12 @@
   "files": [
     "dist",
     "src",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "clean": "rm -rf dist"
   },
