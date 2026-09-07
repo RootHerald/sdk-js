@@ -73,6 +73,10 @@ export interface ChallengeResponse {
    *
    *   `rhc1.<base64url nonce>.<base64url ask-json>`
    *
+   * The third segment decodes to `{"ask":[...]}`, plus `"purpose":"sign"` when
+   * the ask contains `"key"` (the request field is `keyPurpose`; the echoed key
+   * is `purpose`, matching {@link KeyCertification.purpose}).
+   *
    * The client parses it to learn the nonce and the ask; nothing else on the
    * customer side needs to. The TPM signs the NONCE ONLY — the ask segment is
    * not covered by the quote. It does not need to be: the ask is bound by the

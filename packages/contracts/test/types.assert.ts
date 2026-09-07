@@ -116,14 +116,15 @@ const challengeReqKey = {
 // ── ChallengeResponse == 200 of /attest/challenge, with the rhc1 string ────
 // `challenge` is `rhc1.<base64url nonce>.<base64url ask-json>`; the second
 // segment is the same 32 bytes as `nonce` (base64url, unpadded), the third is
-// {"ask":["identity","posture","key"],"keyPurpose":"sign"}.
+// {"ask":["identity","posture","key"],"purpose":"sign"} — `purpose` is present
+// only when the ask contains "key".
 const challengeResp = {
   challengeId: "c-123",
   nonce: "CzBVep/E6Q4zWH2ix+wRNluApcrvFDleg6jN8hc8YYY=",
   expiresAt: "2026-06-30T00:05:00Z",
   challenge:
     "rhc1.CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY." +
-    "eyJhc2siOlsiaWRlbnRpdHkiLCJwb3N0dXJlIiwia2V5Il0sImtleVB1cnBvc2UiOiJzaWduIn0",
+    "eyJhc2siOlsiaWRlbnRpdHkiLCJwb3N0dXJlIiwia2V5Il0sInB1cnBvc2UiOiJzaWduIn0",
 } satisfies ChallengeResponse;
 
 // ── Evidence carrying a key certification (documented contents) ────────────
