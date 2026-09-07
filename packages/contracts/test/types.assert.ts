@@ -30,6 +30,8 @@ import type {
   VerifyAttestationResponse,
 } from "../src/background-check.js";
 import type { AttestationVerdict } from "../src/sdk-api.js";
+import { buildMobileAttestLink } from "../src/mobile-bridge.js";
+import type { BuildMobileAttestLinkOptions } from "../src/mobile-bridge.js";
 
 // ── EnrollRequestBlob == POST /api/v1/attest/enroll body ──────────────────
 // (sdk-native rootherald_win.cpp BuildEnrollFields + server EnrollmentRequest)
@@ -207,9 +209,29 @@ const verifyRespFailedKeyAsk: VerifyAttestationResponse = {
 // The caller stores the wrapped private key; no SDK parses it.
 const keyBlob: KeyBlob = "cmhrMQEA...roughly-300-bytes-of-base64url";
 
+// ── Mobile Universal Link == what the companion app parses ────────────────
+// The link relays `ChallengeResponse.challenge` verbatim under `challenge`;
+// there is no bare-nonce form. The app fails closed on anything else.
+const mobileLinkOpts = {
+  bridgeBaseUrl: "https://bridge.rootherald.io/",
+  tenant: "acme",
+  challengeId: challengeResp.challengeId,
+  challenge: challengeResp.challenge,
+} satisfies BuildMobileAttestLinkOptions;
+const mobileLink: string = buildMobileAttestLink(mobileLinkOpts);
+if (
+  mobileLink !==
+  "https://bridge.rootherald.io/try/attest?tenant=acme&challengeId=c-123&challenge=" +
+    encodeURIComponent(challengeResp.challenge)
+) {
+  throw new Error("buildMobileAttestLink shape drifted");
+}
+
 // Reference the bindings so `noUnusedLocals`-style checks never trip and the
 // assertions are not tree-shaken away by lint.
 export const __contractAssertions = [
+  mobileLinkOpts,
+  mobileLink,
   enrollBody,
   enrollBodyNoCert,
   enrollChallenge,

@@ -2,6 +2,17 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.16
+
+### Breaking
+
+- `buildMobileAttestLink` takes `challenge` (the `ChallengeResponse.challenge`
+  string, relayed verbatim) instead of `nonce`, and the Universal Link carries
+  it as `?challenge=`. The `nonce` query parameter was a holdover from links
+  minted before the challenge carried the ask; the companion app now rejects a
+  link without an `rhc1.` challenge, so a bare nonce is no longer accepted
+  anywhere on the mobile path.
+
 ## 0.1.0-alpha.15
 
 The challenge carries the ask. What the device is asked to prove is fixed at

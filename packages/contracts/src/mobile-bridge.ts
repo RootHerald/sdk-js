@@ -60,12 +60,17 @@ export interface BuildMobileAttestLinkOptions {
   tenant: string;
   /** The single-use challenge id the customer's backend already minted. */
   challengeId: string;
-  /** The challenge nonce (as returned alongside `challengeId`). */
-  nonce: string;
+  /**
+   * The relayed challenge string, exactly as `ChallengeResponse.challenge`
+   * (`rhc1.<nonce>.<ask>`). The app signs over this string and the server
+   * appraises against the ask it carries, so it must be passed verbatim.
+   */
+  challenge: string;
 }
 
 /**
- * Build the Universal Link that opens the RootHerald companion app. It carries
+ * Build the Universal Link that opens the RootHerald companion app:
+ * `<bridgeBaseUrl>/try/attest?tenant=&challengeId=&challenge=`. It carries
  * only the tenant + challenge — **no customer URLs**. The app collects App Attest
  * evidence and POSTs it to the fixed bridge endpoint (`<bridgeBaseUrl>/evidence`);
  * the bridge forwards it to your server-side-registered backend, which brokers the
@@ -79,7 +84,7 @@ export interface BuildMobileAttestLinkOptions {
  * anchorEl.href = buildMobileAttestLink({
  *   bridgeBaseUrl: "https://bridge.rootherald.io",
  *   tenant: "acme",
- *   challengeId, nonce,
+ *   challengeId, challenge,
  * });
  * ```
  */
@@ -88,7 +93,7 @@ export function buildMobileAttestLink(opts: BuildMobileAttestLinkOptions): strin
   const params = new URLSearchParams({
     tenant: opts.tenant,
     challengeId: opts.challengeId,
-    nonce: opts.nonce,
+    challenge: opts.challenge,
   });
   return `${base}/try/attest?${params.toString()}`;
 }
