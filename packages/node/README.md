@@ -215,7 +215,8 @@ Timestamps arrive as ISO-8601 strings and are parsed to `Date` objects
 `rh.verifyMobileEvidence(body)` handles the POST the RootHerald companion app
 makes to your registered `appVerifyUrl`, validates the `iosAttestation` shape,
 and brokers `verify` with your `rh_sk_`. `buildMobileAttestLink` builds the
-link a page opens to hand a challenge to the app.
+link a page opens to hand a challenge to the app; pass it the `challenge`
+string from `issueChallenge` verbatim, and the app signs over it.
 
 ## What this package exports
 
