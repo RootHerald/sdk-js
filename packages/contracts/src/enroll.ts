@@ -85,7 +85,7 @@ export interface EnrollRequestBlob {
  * Mirrors the server `EnrollmentResponse` DTO. `credentialBlob` and
  * `encryptedSecret` are the `TPM2_MakeCredential` outputs (already TPM2B-framed);
  * the client feeds them straight into `TPM2_ActivateCredential`. Every enroll
- * returns all three fields, including a re-enrol of a known device: re-enrolment
+ * returns all three fields, including a re-enroll of a known device: re-enrollment
  * is how a device rotates its attestation key.
  */
 export interface EnrollActivationChallenge {

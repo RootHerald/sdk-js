@@ -68,7 +68,7 @@ export interface EnrollOptions {
 
 export interface EnrollResult {
   /**
-   * Internal enrolment handle for the device.
+   * Internal enrollment handle for the device.
    *
    * NOT the EAT `ueid`, and not equal to it. The `ueid` a verdict returns is
    * scoped to the calling tenant, so it differs from this value (and differs
@@ -86,7 +86,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * Enroll this device with RootHerald via the embedder-relayed handshake.
  *
  * Idempotent — a device that has enrolled before runs the same two legs again
- * and resolves with the same `deviceId`. Re-enrolment is also how a device
+ * and resolves with the same `deviceId`. Re-enrollment is also how a device
  * rotates its attestation key, so it is never short-circuited.
  *
  * @param relay  Embedder callbacks that bridge the two network legs to the

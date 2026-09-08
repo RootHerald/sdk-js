@@ -382,7 +382,7 @@ export class RootHeraldClient {
    *
    * `deviceId` is this tenant's alias for the device, not a global identifier.
    * Every enroll returns a challenge, including for a device already known:
-   * re-enrolment is how a device rotates its attestation key.
+   * re-enrollment is how a device rotates its attestation key.
    *
    * The client never holds the `rh_sk_` key and never talks to RootHerald; this
    * backend helper is the only thing that does.

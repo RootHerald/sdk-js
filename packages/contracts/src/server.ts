@@ -92,8 +92,8 @@ export type RelayEnrollResponse = EnrollActivationChallenge;
  * Result of the enroll relay leg. The canonical shape every server SDK returns
  * from its `relayEnroll` helper.
  *
- * Enrolment always issues a challenge, including for a device already known —
- * re-enrolment is how a device rotates its attestation key, so short-circuiting
+ * Enrollment always issues a challenge, including for a device already known —
+ * re-enrollment is how a device rotates its attestation key, so short-circuiting
  * it would make rotation impossible. Relay `challenge` to the client's
  * `EnrollComplete`, then call the activate leg.
  *
