@@ -144,7 +144,7 @@ const { deviceId } = await enroll({
 `enroll` runs `enroll-begin` → `relay.enroll` → `enroll-complete` →
 `relay.activate` and resolves with `{ deviceId }`. It is idempotent: a device
 that has enrolled before runs the same two legs again and gets the same
-`deviceId`. Re-enrolment is also how a device rotates its attestation key, so
+`deviceId`. Re-enrollment is also how a device rotates its attestation key, so
 it is never short-circuited. `deviceId` is an internal handle, not the
 `ueid` a verdict returns; key your tables on `verdict.device.ueid`.
 

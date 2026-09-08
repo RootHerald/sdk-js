@@ -115,7 +115,7 @@ export class QuotaExceededError extends RootHeraldApiError {
 }
 
 /**
- * 422 — enrolment was refused because the device can never satisfy the policy
+ * 422 — enrollment was refused because the device can never satisfy the policy
  * bound to the supplied `challengeId` (e.g. a firmware TPM under a
  * discrete-TPM-only policy). The server's `detail` names the TPM class and is
  * carried in `message`.

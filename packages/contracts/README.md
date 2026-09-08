@@ -57,7 +57,7 @@ on the `rh_sk_` path, via `@rootherald/node` or another server SDK):
 
 - `InvalidSecretKeyError`: the `rh_sk_` secret is missing/malformed/rejected (401).
 - `UnknownPolicyError`: the named policy is unknown/foreign (422).
-- `AdmissionRefusedError`: enrolment refused because the device can never
+- `AdmissionRefusedError`: enrollment refused because the device can never
   satisfy the challenge's policy; the message names the TPM class (422).
 - `QuotaExceededError`: the tenant exceeded its metered verify quota (429).
 - `ChallengeError`: the challenge expired or was already used (409).

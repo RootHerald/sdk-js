@@ -151,7 +151,7 @@ const activated = await rh.relayActivate(activationResponse);
 ```
 
 Every enroll returns a challenge, including for a device already known:
-re-enrolment is how a device rotates its attestation key. `deviceId` is this
+re-enrollment is how a device rotates its attestation key. `deviceId` is this
 tenant's alias for the device, not a global identifier.
 
 If your backend wants to try `verify` first and enroll only on a miss, a
