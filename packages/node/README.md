@@ -14,10 +14,10 @@ inside the `challenge` string. `verify` appraises against that stored ask, so
 nothing between the two calls can widen or weaken it.
 
 - `new RootHeraldClient({ secretKey })`: the server client.
-- `rh.issueChallenge({ ask?, policy?, keyPurpose?, deviceHint? })`: mint a
+- `rh.issueChallenge({ ask?, keyPurpose?, deviceHint? })`: mint a
   single-use challenge (`POST /api/v1/attest/challenge`). Relay its `challenge`
   string to the client verbatim.
-- `rh.verify(evidence, { challengeId, policy?, requestedDisclosureClass? })`:
+- `rh.verify(evidence, { challengeId, requestedDisclosureClass? })`:
   submit the client's evidence (`POST /api/v1/attest/verify`); get the verdict,
   plus the certified `key` when one was asked for.
 - `rh.relayEnroll(enrollRequestBlob, { challengeId? })`: enroll leg 1
@@ -71,7 +71,6 @@ always asked for before the ask existed.
 ```ts
 const { challengeId, challenge } = await rh.issueChallenge({
   ask: ['identity', 'posture'],
-  policy: 'rootherald:builtin:strict-hardware',
 });
 // … relay `challenge`, receive `evidence` …
 const result = await rh.verify(evidence, { challengeId });
@@ -82,9 +81,12 @@ if (result.device.verdict === 'pass') {
 }
 ```
 
-A `policy` named at `issueChallenge` is bound to the challenge. `verify` may
-name a stricter policy but never a weaker one: the API refuses a downgrade with
-`PolicyDowngradeError`.
+Policies bind to your API key, not to calls. The key carries an identity
+policy and, on Pro, a posture policy; a posture ask runs under the posture
+policy and everything else under the identity policy. The resolved policy is
+pinned on the challenge when it is minted. Change what a key enforces from the
+dashboard or `PUT /api/v1/admin/api-keys/{id}/policies`; a `policy` field in a
+hand-built request body is refused with `400 policy_bound_to_key`.
 
 ### Key issuance and local verification: give the device a key I can trust
 
@@ -139,9 +141,9 @@ Enrollment is a credential-activation handshake: the client produces an
 response back.
 
 ```ts
-// Leg 1: relay the client's EnrollBegin() blob. Pass a live challengeId to run
-// admission against that challenge's policy, so a device that could never
-// satisfy it is refused before it gets an attestation key.
+// Leg 1: relay the client's EnrollBegin() blob. Admission runs under the
+// key's identity policy, so a device that could never satisfy it is refused
+// before it gets an attestation key.
 const enroll = await rh.relayEnroll(enrollRequestBlob, { challengeId });
 
 // Hand enroll.challenge to the client's EnrollComplete(), which returns an
@@ -170,7 +172,6 @@ raise a typed `RootHeraldApiError`:
 | 409    |                      | `ChallengeError`         |
 | 422    | `unknown_policy`     | `UnknownPolicyError`     |
 | 422    | `admission_refused`  | `AdmissionRefusedError`  |
-| 422    | `policy_downgrade`   | `PolicyDowngradeError`   |
 | 429    |                      | `QuotaExceededError`     |
 
 All extend `RootHeraldApiError` (which carries `.status` and the server's

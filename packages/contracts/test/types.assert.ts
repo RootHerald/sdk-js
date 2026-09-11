@@ -105,13 +105,11 @@ const challengeReqIdentity = {
 
 const challengeReqPosture = {
   ask: ["posture"],
-  policy: "rootherald:builtin:strict-hardware",
 } satisfies ChallengeRequest;
 
 // `keyPurpose` is read only because `ask` contains "key".
 const challengeReqKey = {
   ask: ["identity", "posture", "key"],
-  policy: "rootherald:builtin:strict-hardware",
   keyPurpose: "sign",
 } satisfies ChallengeRequest;
 
@@ -147,7 +145,6 @@ const evidenceWithKey = {
 const verifyReq = {
   challengeId: "c-123",
   evidence: { quote: {} } as unknown, // EvidenceBlob is opaque (unknown)
-  policy: "rootherald:builtin:strict-hardware",
 } satisfies VerifyAttestationRequest;
 
 const verifyReqWithKey = {

@@ -5,7 +5,6 @@ import {
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
-  PolicyDowngradeError,
   QuotaExceededError,
   RootHeraldApiError,
   UnknownPolicyError,
@@ -101,22 +100,19 @@ describe("issueChallenge", () => {
     expect(JSON.parse(init.body)).toEqual({});
   });
 
-  it("sends ask, policy and keyPurpose", async () => {
+  it("sends ask and keyPurpose, and never a policy", async () => {
     const fetchMock = mockFetch(200, CHALLENGE_WIRE);
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
     await rh.issueChallenge({
       ask: ["identity", "key"],
-      policy: "rootherald:builtin:strict-hardware",
       keyPurpose: "sign",
     });
 
     const [, init] = calls(fetchMock)[0];
-    expect(JSON.parse(init.body)).toEqual({
-      ask: ["identity", "key"],
-      policy: "rootherald:builtin:strict-hardware",
-      keyPurpose: "sign",
-    });
+    const body = JSON.parse(init.body);
+    expect(body).toEqual({ ask: ["identity", "key"], keyPurpose: "sign" });
+    expect("policy" in body).toBe(false);
   });
 
   it("returns the challenge string verbatim", async () => {
@@ -151,14 +147,14 @@ describe("verify", () => {
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
     const evidence = { quote: "AAAA", sig: "BBBB", pcrs: [1, 2, 3], nested: { x: true } };
-    await rh.verify(evidence, { challengeId: "chal-1", policy: "rootherald:builtin:strict" });
+    await rh.verify(evidence, { challengeId: "chal-1" });
 
     const [url, init] = calls(fetchMock)[0];
     expect(url).toBe(`${BASE}/api/v1/attest/verify`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     const body = JSON.parse(init.body);
     expect(body.challengeId).toBe("chal-1");
-    expect(body.policy).toBe("rootherald:builtin:strict");
+    expect("policy" in body).toBe(false);
     expect(body.evidence).toEqual(evidence); // verbatim pass-through
   });
 
@@ -388,7 +384,6 @@ describe("error mapping", () => {
     [401, "invalid_secret_key", InvalidSecretKeyError],
     [422, "unknown_policy", UnknownPolicyError],
     [422, "admission_refused", AdmissionRefusedError],
-    [422, "policy_downgrade", PolicyDowngradeError],
     [409, "challenge_expired_or_used", ChallengeError],
     [400, "invalid_evidence", InvalidEvidenceError],
     [429, "quota_exceeded", QuotaExceededError],

@@ -45,8 +45,8 @@ export interface EnrollRelay {
   /**
    * Relay leg 1. POST `enrollRequestBlob` to your backend, which calls
    * @rootherald/node `relayEnroll(blob, { challengeId? })` and returns its
-   * {@link RelayEnrollResult}. Pass a live challenge id on the backend to run
-   * admission against that challenge's policy.
+   * {@link RelayEnrollResult}. Admission runs under the identity policy bound
+   * to the backend's API key.
    */
   enroll(enrollRequestBlob: EnrollRequestBlob): Promise<RelayEnrollResult>;
   /**
