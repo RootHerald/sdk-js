@@ -28,7 +28,6 @@ import {
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
-  PolicyDowngradeError,
   QuotaExceededError,
   RootHeraldApiError,
   UnknownPolicyError,
@@ -110,12 +109,6 @@ export interface IssueChallengeOptions {
    */
   ask?: Ask[];
   /**
-   * Caller-named policy to bind to the challenge: a tenant-owned policy
-   * id/name or a `rootherald:builtin:*` name. Unknown/foreign names fail
-   * closed (422). `verify` may name a stricter policy but not a weaker one.
-   */
-  policy?: string;
-  /**
    * What the certified key will be used for. Read only when `ask` contains
    * `"key"`. `"sign"` is the only purpose today.
    */
@@ -126,13 +119,6 @@ export interface IssueChallengeOptions {
 export interface AttestOptions {
   /** The single-use challenge id from {@link RootHeraldClient.issueChallenge}. */
   challengeId: string;
-  /**
-   * Caller-named policy: a tenant-owned policy id/name or a
-   * `rootherald:builtin:*` name. Unknown/foreign names fail closed (422).
-   * When the challenge carries a policy, this may only tighten it; a weaker
-   * policy is refused with {@link PolicyDowngradeError}.
-   */
-  policy?: string;
   /**
    * Optional disclosure ceiling to request for this appraisal
    * (`"verdict" | "pseudonymous" | "derived" | "full"`). Omitted => the
@@ -243,7 +229,6 @@ export class RootHeraldClient {
     const body: ChallengeRequest = {};
     if (opts?.deviceHint !== undefined) body.deviceHint = opts.deviceHint;
     if (opts?.ask !== undefined) body.ask = opts.ask;
-    if (opts?.policy !== undefined) body.policy = opts.policy;
     if (opts?.keyPurpose !== undefined) body.keyPurpose = opts.keyPurpose;
 
     const data = await this.post<ChallengeResponse>(
@@ -294,7 +279,6 @@ export class RootHeraldClient {
       challengeId: opts.challengeId,
       evidence,
     };
-    if (opts.policy !== undefined) body.policy = opts.policy;
     if (opts.requestedDisclosureClass !== undefined) {
       body.requestedDisclosureClass = opts.requestedDisclosureClass;
     }
@@ -349,10 +333,7 @@ export class RootHeraldClient {
    * res.json({ ok: true });
    * ```
    */
-  async verifyMobileEvidence(
-    body: MobileAppVerifyRequest,
-    opts?: Pick<AttestOptions, "policy">,
-  ): Promise<AttestResult> {
+  async verifyMobileEvidence(body: MobileAppVerifyRequest): Promise<AttestResult> {
     if (!body || typeof body.challengeId !== "string" || !body.challengeId) {
       throw new RootHeraldError(
         "verifyMobileEvidence() requires a body with `challengeId`",
@@ -368,9 +349,7 @@ export class RootHeraldClient {
         "verifyMobileEvidence() body is missing evidence.iosAttestation.{attestationObject,keyId}",
       );
     }
-    const attestOpts: AttestOptions = { challengeId: body.challengeId };
-    if (opts?.policy !== undefined) attestOpts.policy = opts.policy;
-    return this.verify(body.evidence, attestOpts);
+    return this.verify(body.evidence, { challengeId: body.challengeId });
   }
 
   /**
@@ -605,14 +584,12 @@ async function toApiError(res: Response): Promise<RootHeraldError> {
     case 401:
       return new InvalidSecretKeyError(message, errorCode);
     case 422:
-      // Three refusals share the status; the body's `error` tells them apart.
-      // An unknown or foreign policy is the default because it is what a 422
-      // meant before the other two existed.
+      // Two refusals share the status; the body's `error` tells them apart.
+      // An unknown policy is the default because it is what a 422 meant
+      // before admission refusals existed.
       switch (errorCode) {
         case "admission_refused":
           return new AdmissionRefusedError(message, errorCode);
-        case "policy_downgrade":
-          return new PolicyDowngradeError(message, errorCode);
         default:
           return new UnknownPolicyError(message, errorCode);
       }

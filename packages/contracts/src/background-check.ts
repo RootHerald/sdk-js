@@ -46,14 +46,6 @@ export interface ChallengeRequest {
    */
   ask?: Ask[];
   /**
-   * A caller-named policy: a tenant-owned policy id/name or a
-   * `rootherald:builtin:*` name. Resolved tenant-scoped + fail-closed
-   * (unknown/foreign name => 422) and stored on the challenge. The verify leg
-   * may name a stricter policy but never a weaker one — see
-   * {@link VerifyAttestationRequest.policy}.
-   */
-  policy?: string;
-  /**
    * What the certified key will be used for. Read only when `ask` contains
    * `"key"`; ignored otherwise. `"sign"` is the only purpose today.
    */
@@ -133,16 +125,6 @@ export interface VerifyAttestationRequest {
   challengeId: string;
   /** The opaque evidence blob produced by the client collector. */
   evidence: EvidenceBlob;
-  /**
-   * A caller-named policy: a tenant-owned policy id/name or a
-   * `rootherald:builtin:*` name. Resolved tenant-scoped + fail-closed
-   * (unknown/foreign name => 422).
-   *
-   * When the challenge was issued with a policy, this may only name a policy
-   * at least as strict as the challenge's. The API refuses a downgrade with
-   * `422 policy_downgrade`.
-   */
-  policy?: string;
   /**
    * Optional disclosure ceiling the caller is requesting for this appraisal.
    * Omitted => the resolved policy's default disclosure applies.

@@ -20,7 +20,6 @@ export {
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
-  PolicyDowngradeError,
   QuotaExceededError,
   RootHeraldApiError,
   UnknownPolicyError,
@@ -76,11 +75,11 @@ import type {
  */
 export interface RelayEnrollRequest extends EnrollRequestBlob {
   /**
-   * A live challenge id from `issueChallenge`. When present, admission runs
-   * against the policy stored on that challenge instead of the tenant default,
-   * so a device that could never satisfy the policy is refused before it gets
-   * an AK. Refusal is `422 admission_refused` with the TPM class in the detail
-   * (see {@link AdmissionRefusedError}).
+   * A live challenge id from `issueChallenge`. Admission runs under the
+   * identity policy bound to the API key, pinned on that challenge when one
+   * is given, so a device that could never satisfy the policy is refused
+   * before it gets an AK. Refusal is `422 admission_refused` with the TPM
+   * class in the detail (see {@link AdmissionRefusedError}).
    */
   challengeId?: string;
 }

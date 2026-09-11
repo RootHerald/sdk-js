@@ -2,6 +2,19 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.17
+
+### Breaking
+
+- Policies bind to API keys. The `policy` option is gone from
+  `issueChallenge`, `verify` and `verifyMobileEvidence`, and the `policy`
+  field from `ChallengeRequest` and `VerifyAttestationRequest`. The server
+  refuses the field with `400 policy_bound_to_key`. Bind a policy to the key
+  from the dashboard or `PUT /api/v1/admin/api-keys/{id}/policies`.
+- `PolicyDowngradeError` is removed with the field that produced it.
+  `UnknownPolicyError` (422 `unknown_policy`) now means a policy bound to the
+  key no longer exists.
+
 ## 0.1.0-alpha.16
 
 ### Breaking
