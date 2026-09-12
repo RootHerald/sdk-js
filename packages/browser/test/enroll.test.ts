@@ -12,7 +12,7 @@ import type { RelayEnrollResult } from '@rootherald/contracts/server';
 const FAST = { timeoutMs: 50 } as const;
 
 const CHALLENGE: EnrollActivationChallenge = {
-  deviceId: 'dev-fresh',
+  enrollmentId: 'enr-fresh',
   credentialBlob: 'cred-b64',
   encryptedSecret: 'enc-b64',
 };
@@ -24,43 +24,47 @@ function makeRelay(result: RelayEnrollResult): EnrollRelay & {
 } {
   return {
     enroll: vi.fn(async (_blob: EnrollRequestBlob) => result),
-    activate: vi.fn(async (_blob: EnrollActivationResponse) => ({
-      deviceId: result.deviceId,
-    })),
+    activate: vi.fn(async (_blob: EnrollActivationResponse) => undefined),
   };
 }
 
 describe('enroll (keyless, backend-relayed)', () => {
   it('fresh enroll: begin -> relay.enroll -> complete -> relay.activate', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
-    const relay = makeRelay({
-      deviceId: 'dev-fresh',
-      challenge: CHALLENGE,
-    });
+    const relay = makeRelay({ challenge: CHALLENGE });
 
     const res = await enroll(relay, { ...FAST, win });
 
-    expect(res).toEqual({ deviceId: 'dev-fresh' });
+    // The page learns nothing about the device it enrolled.
+    expect(res).toBeUndefined();
     // relay.enroll got the opaque enrollRequestBlob the host produced.
     expect(relay.enroll).toHaveBeenCalledTimes(1);
     expect(relay.enroll.mock.calls[0][0]).toMatchObject({
       ekPublicKey: expect.any(String),
       akPublicArea: expect.any(String),
     });
-    // The challenge was forwarded to the host's enroll-complete leg.
+    // The 201 body was forwarded to the host's enroll-complete leg verbatim.
     expect(win.lastChallenge).toEqual(CHALLENGE);
     // relay.activate got the activation blob the host produced.
     expect(relay.activate).toHaveBeenCalledTimes(1);
     expect(relay.activate.mock.calls[0][0]).toMatchObject({
-      deviceId: 'device-1',
+      enrollmentId: 'enr-1',
       decryptedSecret: expect.any(String),
     });
   });
 
+  it('resolves void even when relay.activate returns the backend body', async () => {
+    const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
+    const relay: EnrollRelay = {
+      enroll: vi.fn(async () => ({ challenge: CHALLENGE })),
+      activate: vi.fn(async () => ({ deviceId: 'tenant-alias', status: 'enrolled' })),
+    };
+    await expect(enroll(relay, { ...FAST, win })).resolves.toBeUndefined();
+  });
 
   it('throws ExtensionMissingError when the extension never responds', async () => {
     const win = new FakeWindow({ extensionPresent: false });
-    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
+    const relay = makeRelay({ challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       ExtensionMissingError,
     );
@@ -69,7 +73,7 @@ describe('enroll (keyless, backend-relayed)', () => {
 
   it('throws HostMissingError when extension is present but host is disconnected', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: false });
-    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
+    const relay = makeRelay({ challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       HostMissingError,
     );
@@ -81,7 +85,7 @@ describe('enroll (keyless, backend-relayed)', () => {
       hostPresent: true,
       enrollBeginHangs: true,
     });
-    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
+    const relay = makeRelay({ challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       ExtensionMissingError,
     );
@@ -91,9 +95,9 @@ describe('enroll (keyless, backend-relayed)', () => {
     const win = new FakeWindow({
       extensionPresent: true,
       hostPresent: false,
-      hostError: 'rh:abi_mismatch:host speaks ABI 5.0',
+      hostError: 'rh:abi_mismatch:host speaks ABI 6.0',
     });
-    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
+    const relay = makeRelay({ challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(AbiMismatchError);
   });
 
@@ -103,7 +107,7 @@ describe('enroll (keyless, backend-relayed)', () => {
       hostPresent: false,
       hostError: 'Request timed out',
     });
-    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
+    const relay = makeRelay({ challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(TimeoutError);
   });
 
@@ -113,7 +117,7 @@ describe('enroll (keyless, backend-relayed)', () => {
       hostPresent: true,
       enrollBeginNoBlob: true,
     });
-    const relay = makeRelay({ deviceId: 'x', challenge: CHALLENGE });
+    const relay = makeRelay({ challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       HostMissingError,
     );
@@ -126,10 +130,7 @@ describe('enroll (keyless, backend-relayed)', () => {
       hostPresent: true,
       enrollCompleteNoBlob: true,
     });
-    const relay = makeRelay({
-      deviceId: 'dev-fresh',
-      challenge: CHALLENGE,
-    });
+    const relay = makeRelay({ challenge: CHALLENGE });
     await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
       HostMissingError,
     );

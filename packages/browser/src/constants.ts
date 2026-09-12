@@ -1,7 +1,7 @@
 /**
  * Stable identifiers and message shapes for the page <-> extension wire.
  *
- * These mirror the Client ABI 6.0 protocol implemented by the RootHerald
+ * These mirror the Client ABI 7.0 protocol implemented by the RootHerald
  * browser extension (content-script / service-worker) and the native host. The
  * page is the initiator; the extension never broadcasts unsolicited, so a site
  * that does not use RootHerald cannot fingerprint the extension.
@@ -13,7 +13,8 @@
  * @rootherald/contracts blobs across the page<->extension<->host bridge.
  */
 
-import type { EnrollActivationChallenge, KeyBlob } from '@rootherald/contracts';
+import type { KeyBlob } from '@rootherald/contracts';
+import type { RelayEnrollResponse } from '@rootherald/contracts/server';
 
 /**
  * Deterministic Chrome/Edge extension id, derived from the committed manifest
@@ -58,9 +59,9 @@ export const ACTION_POSTURE = 'posture' as const;
  */
 export const ACTION_ENROLL_BEGIN = 'enroll-begin' as const;
 /**
- * Action: enroll leg 2 — the host's `EnrollComplete`. Takes the
- * {@link EnrollActivationChallenge} the backend relayed back from
- * `/api/v1/attest/enroll`, runs `TPM2_ActivateCredential` in the SAME resident
+ * Action: enroll leg 2 — the host's `EnrollComplete`. Takes the 201 body
+ * ({@link import('@rootherald/contracts').EnrollActivationChallenge}) the backend
+ * relayed back from `/api/v1/attest/enroll`, runs `TPM2_ActivateCredential` in the SAME resident
  * elevated worker started by {@link ACTION_ENROLL_BEGIN}, and returns an opaque
  * `activationBlob`
  * ({@link import('@rootherald/contracts').EnrollActivationResponse}) for the
@@ -85,9 +86,9 @@ export interface RootHeraldRequestMessage {
   action: RootHeraldAction;
   /**
    * The challenge. For `respond`, the backend-issued `rhc1.` string; for
-   * `enroll-complete`, the MakeCredential challenge.
+   * `enroll-complete`, the enroll relay's 201 body, verbatim.
    */
-  challenge?: string | EnrollActivationChallenge;
+  challenge?: string | RelayEnrollResponse;
   /** The wrapped signing key for `respond` (to reuse) and `sign`. */
   keyBlob?: KeyBlob;
   /** base64url of the bytes to sign, for `sign`. */

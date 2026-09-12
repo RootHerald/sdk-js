@@ -17,10 +17,11 @@ nothing between the two calls can widen or weaken it.
 - `rh.issueChallenge({ ask?, keyPurpose?, deviceHint? })`: mint a
   single-use challenge (`POST /api/v1/attest/challenge`). Relay its `challenge`
   string to the client verbatim.
-- `rh.verify(evidence, { challengeId, requestedDisclosureClass? })`:
-  submit the client's evidence (`POST /api/v1/attest/verify`); get the verdict,
-  plus the certified `key` when one was asked for.
-- `rh.relayEnroll(enrollRequestBlob, { challengeId? })`: enroll leg 1
+- `rh.verify(evidence, { nonce, requestedDisclosureClass? })`:
+  submit the client's evidence (`POST /api/v1/attest/verify`) under the
+  challenge's `nonce`; get the verdict, plus the certified `key` when one was
+  asked for.
+- `rh.relayEnroll(enrollRequestBlob)`: enroll leg 1
   (`POST /api/v1/attest/enroll`).
 - `rh.relayActivate(activationResponse)`: enroll leg 2
   (`POST /api/v1/attest/activate`).
@@ -52,11 +53,12 @@ import { RootHeraldClient } from '@rootherald/node';
 
 const rh = new RootHeraldClient({ secretKey: process.env.RH_SECRET_KEY! }); // rh_sk_…
 
-// 1. Mint a challenge asking for identity, and relay `challenge` to the client.
-const { challengeId, challenge } = await rh.issueChallenge({ ask: ['identity'] });
+// 1. Mint a challenge asking for identity. Relay `challenge` to the client;
+//    keep `nonce`, the handle you verify under.
+const { nonce, challenge } = await rh.issueChallenge({ ask: ['identity'] });
 
 // 2. The client responds with an opaque `evidence` blob. Appraise it.
-const result = await rh.verify(evidence, { challengeId });
+const result = await rh.verify(evidence, { nonce });
 
 if (result.device.verdict === 'pass') {
   // result.device.ueid is this tenant's stable id for the TPM: bind the session to it.
@@ -69,11 +71,11 @@ always asked for before the ask existed.
 ### Posture step-up: is the boot configuration acceptable right now?
 
 ```ts
-const { challengeId, challenge } = await rh.issueChallenge({
+const { nonce, challenge } = await rh.issueChallenge({
   ask: ['identity', 'posture'],
 });
 // … relay `challenge`, receive `evidence` …
-const result = await rh.verify(evidence, { challengeId });
+const result = await rh.verify(evidence, { nonce });
 
 if (result.device.verdict === 'pass') {
   // allow the high-value action; result.assuranceClaimsMet lists the
@@ -98,12 +100,12 @@ the public JWK.
 ```ts
 import { RootHeraldClient, verifyKeySignature } from '@rootherald/node';
 
-const { challengeId, challenge } = await rh.issueChallenge({
+const { nonce, challenge } = await rh.issueChallenge({
   ask: ['identity', 'key'],
   keyPurpose: 'sign',
 });
 // … relay `challenge`; the client responds with `evidence` and keeps its `KeyBlob` …
-const result = await rh.verify(evidence, { challengeId });
+const result = await rh.verify(evidence, { nonce });
 
 if (result.device.verdict === 'pass' && result.key) {
   await db.saveDeviceKey(result.device.ueid, result.key.keyId, result.key.jwk);
@@ -141,20 +143,24 @@ Enrollment is a credential-activation handshake: the client produces an
 response back.
 
 ```ts
-// Leg 1: relay the client's EnrollBegin() blob. Admission runs under the
-// key's identity policy, so a device that could never satisfy it is refused
-// before it gets an attestation key.
-const enroll = await rh.relayEnroll(enrollRequestBlob, { challengeId });
+// Leg 1: relay the client's EnrollBegin() blob verbatim. Admission runs under
+// the key's identity policy, so a device that could never satisfy it is
+// refused before it gets an attestation key.
+const { challenge } = await rh.relayEnroll(enrollRequestBlob);
 
-// Hand enroll.challenge to the client's EnrollComplete(), which returns an
-// activationResponse blob; relay it to finish binding.
-const activated = await rh.relayActivate(activationResponse);
-// activated.deviceId is the bound device.
+// Hand `challenge` (the 201 body) to the client's EnrollComplete(), which
+// returns an activationResponse blob; relay it to finish binding.
+const { deviceId } = await rh.relayActivate(activationResponse);
+// deviceId is this tenant's alias for the device. Keep it here; do not send
+// it back to the client.
 ```
 
 Every enroll returns a challenge, including for a device already known:
-re-enrollment is how a device rotates its attestation key. `deviceId` is this
-tenant's alias for the device, not a global identifier.
+re-enrollment is how a device rotates its attestation key. The challenge
+carries an `enrollmentId` the client echoes back, never a device id; the
+device's alias is known only after activation, and only to your backend.
+An iOS enrollment has nothing to activate: its `challenge` is `{}` and there
+is no second leg.
 
 If your backend wants to try `verify` first and enroll only on a miss, a
 response with `enrollmentRequired: true` is the cue.
@@ -213,17 +219,22 @@ Timestamps arrive as ISO-8601 strings and are parsed to `Date` objects
 
 ## Mobile bridge
 
-`rh.verifyMobileEvidence(body)` handles the POST the RootHerald companion app
-makes to your registered `appVerifyUrl`, validates the `iosAttestation` shape,
-and brokers `verify` with your `rh_sk_`. `buildMobileAttestLink` builds the
-link a page opens to hand a challenge to the app; pass it the `challenge`
-string from `issueChallenge` verbatim, and the app signs over it.
+`rh.verifyMobileEvidence(body)` handles the POST the RootHerald bridge makes
+to your registered `appVerifyUrl`: `{ nonce, evidence: { iosAttestation: {
+assertion, keyId } } }`. It validates that shape and brokers `verify` under
+the `nonce` with your `rh_sk_`. The enroll leg arrives at your registered
+enroll URL as `{ nonce, enrollment }` (`MobileAppEnrollRequest`); hand
+`enrollment` to `relayEnroll`. `buildMobileAttestLink({ bridgeBaseUrl,
+challenge })` builds the link a page opens to hand a challenge to the app;
+pass it the `challenge` string from `issueChallenge` verbatim, and the app
+signs over it. The bridge reopens your `returnUrl` with `?nonce=` so the page
+knows which result to poll.
 
 ## What this package exports
 
 `RootHeraldClient`, `verifyKeySignature`, the error classes above, the
 option/result types (`IssueChallengeOptions`, `AttestOptions`, `AttestResult`,
-`AttestResultKey`, `RelayEnrollOptions`), and the contract types from
+`AttestResultKey`), and the contract types from
 `@rootherald/contracts` (`Ask`, `ChallengeResponse`, `CertifiedKey`, `KeyBlob`,
 `EvidenceBlob`, the enroll blobs, the verdict types). There is no webhook
 receiver in this package.

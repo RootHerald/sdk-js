@@ -1,17 +1,19 @@
 /**
- * Compile-time contract assertions (Client ABI 2.0, WP0).
+ * Compile-time contract assertions.
  *
  * Not shipped (excluded from the build `tsconfig.json`; checked by
  * `tsconfig.typecheck.json`). Each sample object is the REAL wire JSON the
  * native client emits / the server binds; `satisfies` fails the typecheck if a
- * contract type drifts from the wire shape. This is the extrinsic signal for
- * WP0 — the types stay grounded in what the code already sends.
+ * contract type drifts from the wire shape.
  */
 
 import type {
+  AppAttestEnrollRequestBlob,
   EnrollActivationChallenge,
   EnrollActivationResponse,
   EnrollRequestBlob,
+  SecureEnclaveEnrollRequestBlob,
+  TpmEnrollRequestBlob,
 } from "../src/enroll.js";
 import type {
   RelayActivateRequest,
@@ -31,44 +33,68 @@ import type {
 } from "../src/background-check.js";
 import type { AttestationVerdict } from "../src/sdk-api.js";
 import { buildMobileAttestLink } from "../src/mobile-bridge.js";
-import type { BuildMobileAttestLinkOptions } from "../src/mobile-bridge.js";
+import type {
+  BuildMobileAttestLinkOptions,
+  MobileAppEnrollRequest,
+  MobileAppVerifyRequest,
+} from "../src/mobile-bridge.js";
 
-// ── EnrollRequestBlob == POST /api/v1/attest/enroll body ──────────────────
-// (sdk-native rootherald_win.cpp BuildEnrollFields + server EnrollmentRequest)
+// ── EnrollRequestBlob == POST /api/v1/attest/enroll body, per platform ─────
 const enrollBody = {
   ekPublicKey: "<base64 PCP_EKPUB>",
   akPublicArea: "<base64 TPM2B_PUBLIC>",
   platform: "windows",
   ekCertPem: "-----BEGIN CERTIFICATE-----...",
   ekCertificateChain: ["-----BEGIN CERTIFICATE-----..."],
-} satisfies EnrollRequestBlob;
+  tpmSelfReport: { manufacturer: "INTC", vendorString: "Intel" },
+} satisfies TpmEnrollRequestBlob;
 
 // Firmware-TPM variant: EK cert + chain absent (Intel PTT). Must still satisfy.
 const enrollBodyNoCert = {
   ekPublicKey: "<base64>",
   akPublicArea: "<base64>",
   platform: "linux",
-} satisfies EnrollRequestBlob;
+} satisfies TpmEnrollRequestBlob;
 
-// ── EnrollActivationChallenge == 201 response of /devices/enroll ───────────
-// (server EnrollmentResponse; cpp JsonGet deviceId/credentialBlob/encryptedSecret)
+const enrollBodyMac = {
+  ekPublicKey: "<base64 X9.63 P-256>",
+  akPublicArea: "<base64 X9.63 P-256>",
+  platform: "macos",
+} satisfies SecureEnclaveEnrollRequestBlob;
+
+const enrollBodyIos = {
+  platform: "ios",
+  iosKeyId: "<base64 key id>",
+  iosAttestationObject: "<base64 CBOR>",
+  nonce: "CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY",
+} satisfies AppAttestEnrollRequestBlob;
+
+const enrollBodies: EnrollRequestBlob[] = [enrollBody, enrollBodyNoCert, enrollBodyMac, enrollBodyIos];
+
+// ── EnrollActivationChallenge == 201 response of /attest/enroll ────────────
 const enrollChallenge = {
-  deviceId: "f1a2...uuid",
+  enrollmentId: "f1a2...uuid",
   credentialBlob: "<base64 MakeCredential id-object>",
   encryptedSecret: "<base64 MakeCredential secret>",
 } satisfies EnrollActivationChallenge;
 
+const enrollChallengeMac = {
+  enrollmentId: "f1a2...uuid",
+  challengeNonce: "<base64 nonce>",
+} satisfies EnrollActivationChallenge;
+
+// iOS has nothing to activate; the 201 is empty.
+const enrollChallengeIos = {} satisfies RelayEnrollResponse;
+
 // ── EnrollActivationResponse == POST /api/v1/attest/activate body ─────────
-// (server ActivationRequest; cpp activate body {deviceId, decryptedSecret})
 const activateBody = {
-  deviceId: "f1a2...uuid",
+  enrollmentId: "f1a2...uuid",
   decryptedSecret: "<base64 32-byte secret>",
 } satisfies EnrollActivationResponse;
 
-const activateBodyWithAk = {
-  deviceId: "f1a2...uuid",
-  decryptedSecret: "<base64>",
-  akPublicKey: "<base64 AK pub>", // server ActivationRequest.AkPublicKey (optional)
+const activateBodyMac = {
+  enrollmentId: "f1a2...uuid",
+  signature: "<base64 ECDSA>",
 } satisfies EnrollActivationResponse;
 
 // ── Relay leg aliases reuse the neutral blobs (server-context names) ───────
@@ -81,17 +107,13 @@ const relayActivateResp = {
   enrolledAt: "2026-06-30T00:00:00Z",
 } satisfies RelayActivateResponse;
 
-// The backend adds `challengeId` so admission runs against that challenge's
-// policy; the client blob itself is unchanged.
-const relayEnrollReqWithChallenge = {
-  ...enrollBody,
-  challengeId: "c-123",
-} satisfies RelayEnrollRequest;
-
-// ── RelayEnrollResult == the relay outcome: alias + challenge, always ──────
+// ── RelayEnrollResult == the relay outcome: the 201 body, nothing else ─────
 const relayEnrollResult = {
-  deviceId: "f1a2...uuid",
   challenge: enrollChallenge,
+} satisfies RelayEnrollResult;
+
+const relayEnrollResultIos = {
+  challenge: enrollChallengeIos,
 } satisfies RelayEnrollResult;
 
 // ── ChallengeRequest == POST /api/v1/attest/challenge body, one per ask ────
@@ -115,12 +137,11 @@ const challengeReqKey = {
 
 // ── ChallengeResponse == 200 of /attest/challenge, with the rhc1 string ────
 // `challenge` is `rhc1.<base64url nonce>.<base64url ask-json>`; the second
-// segment is the same 32 bytes as `nonce` (base64url, unpadded), the third is
+// segment is `nonce` verbatim (base64url, unpadded), the third is
 // {"ask":["identity","posture","key"],"purpose":"sign"} — `purpose` is present
 // only when the ask contains "key".
 const challengeResp = {
-  challengeId: "c-123",
-  nonce: "CzBVep/E6Q4zWH2ix+wRNluApcrvFDleg6jN8hc8YYY=",
+  nonce: "CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY",
   expiresAt: "2026-06-30T00:05:00Z",
   challenge:
     "rhc1.CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY." +
@@ -137,18 +158,19 @@ const keyCertification = {
 } satisfies KeyCertification;
 
 const evidenceWithKey = {
-  quote: {},
+  pcrValues: { sha256: { "7": "<hex>" } },
+  quote: { quoted: "<base64 TPMS_ATTEST>", signature: "<base64 TPMT_SIGNATURE>" },
   eventLog: "<base64>",
   keyCertification,
 } as unknown; // EvidenceBlob is opaque (unknown)
 
 const verifyReq = {
-  challengeId: "c-123",
+  nonce: challengeResp.nonce,
   evidence: { quote: {} } as unknown, // EvidenceBlob is opaque (unknown)
 } satisfies VerifyAttestationRequest;
 
 const verifyReqWithKey = {
-  challengeId: "c-123",
+  nonce: challengeResp.nonce,
   evidence: evidenceWithKey,
 } satisfies VerifyAttestationRequest;
 
@@ -206,19 +228,28 @@ const verifyRespFailedKeyAsk: VerifyAttestationResponse = {
 // The caller stores the wrapped private key; no SDK parses it.
 const keyBlob: KeyBlob = "cmhrMQEA...roughly-300-bytes-of-base64url";
 
+// ── Mobile bridge forwards == what the customer's backend receives ─────────
+const mobileEnrollReq = {
+  nonce: challengeResp.nonce,
+  enrollment: enrollBodyIos,
+} satisfies MobileAppEnrollRequest;
+
+const mobileVerifyReq = {
+  nonce: challengeResp.nonce,
+  evidence: { iosAttestation: { assertion: "<base64 CBOR>", keyId: "<base64 key id>" } },
+} satisfies MobileAppVerifyRequest;
+
 // ── Mobile Universal Link == what the companion app parses ────────────────
-// The link relays `ChallengeResponse.challenge` verbatim under `challenge`;
-// there is no bare-nonce form. The app fails closed on anything else.
+// The link relays `ChallengeResponse.challenge` verbatim under `challenge`
+// and nothing else. The app fails closed on anything else.
 const mobileLinkOpts = {
   bridgeBaseUrl: "https://bridge.rootherald.io/",
-  tenant: "acme",
-  challengeId: challengeResp.challengeId,
   challenge: challengeResp.challenge,
 } satisfies BuildMobileAttestLinkOptions;
 const mobileLink: string = buildMobileAttestLink(mobileLinkOpts);
 if (
   mobileLink !==
-  "https://bridge.rootherald.io/try/attest?tenant=acme&challengeId=c-123&challenge=" +
+  "https://bridge.rootherald.io/try/attest?challenge=" +
     encodeURIComponent(challengeResp.challenge)
 ) {
   throw new Error("buildMobileAttestLink shape drifted");
@@ -229,17 +260,24 @@ if (
 export const __contractAssertions = [
   mobileLinkOpts,
   mobileLink,
+  mobileEnrollReq,
+  mobileVerifyReq,
   enrollBody,
   enrollBodyNoCert,
+  enrollBodyMac,
+  enrollBodyIos,
+  enrollBodies,
   enrollChallenge,
+  enrollChallengeMac,
+  enrollChallengeIos,
   activateBody,
-  activateBodyWithAk,
+  activateBodyMac,
   relayEnrollReq,
   relayEnrollResp,
   relayActivateReq,
   relayActivateResp,
-  relayEnrollReqWithChallenge,
   relayEnrollResult,
+  relayEnrollResultIos,
   challengeReqDefault,
   challengeReqIdentity,
   challengeReqPosture,

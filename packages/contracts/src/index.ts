@@ -35,13 +35,16 @@ export type {
   VerifyAttestationResponse,
 } from "./background-check.js";
 
-// Client ABI 2.0 enroll-handshake blobs (client-neutral). The client emits/
-// consumes these; the customer's backend relays them. The server-side relay
-// pair (RelayEnroll*/RelayActivate*) lives on "@rootherald/contracts/server".
+// Enroll-handshake blobs (client-neutral). The client emits/consumes these;
+// the customer's backend relays them. The server-side relay pair
+// (RelayEnroll*/RelayActivate*) lives on "@rootherald/contracts/server".
 export type {
+  AppAttestEnrollRequestBlob,
   EnrollActivationChallenge,
   EnrollActivationResponse,
   EnrollRequestBlob,
+  SecureEnclaveEnrollRequestBlob,
+  TpmEnrollRequestBlob,
 } from "./enroll.js";
 
 // Client-neutral errors. `RootHeraldError` is the base of everything;
@@ -74,6 +77,7 @@ export {
 // Mobile attestation bridge (browser-only customers, mobile users).
 export type {
   TenantMobileConfig,
+  MobileAppEnrollRequest,
   MobileAppVerifyRequest,
   BuildMobileAttestLinkOptions,
 } from "./mobile-bridge.js";

@@ -3,7 +3,7 @@
  *
  * These mirror the frozen RootHerald HTTP contract for the server-side
  * appraisal flow:
- *   - C1  POST /api/v1/attest/challenge  (relay-friendly nonce)
+ *   - C1  POST /api/v1/attest/challenge  (mint a challenge; the nonce is its handle)
  *   - C2  POST /api/v1/attest/verify     (server -> server appraise)
  *
  * The customer's dumb client collects an opaque evidence blob and hands it to
@@ -15,6 +15,10 @@
  * fixed at C1, stored on the server's challenge row, and echoed to the client
  * inside the `challenge` string; C2 appraises against that stored ask, so a
  * caller cannot widen or weaken it between the two legs.
+ *
+ * Nothing in a request body locates a row. The server finds the tenant from
+ * the `rh_sk_` key, the challenge from the nonce the proof was made over, and
+ * the device from the proof itself.
  *
  * Pure types; no runtime code. These are the shapes the other-language SDKs
  * mirror against, so they are deliberately exact.
@@ -32,7 +36,10 @@ import type { AttestationVerdict } from "./sdk-api.js";
  */
 export type Ask = "identity" | "posture" | "key";
 
-/** Request body for `POST /api/v1/attest/challenge` (C1). */
+/**
+ * Request body for `POST /api/v1/attest/challenge` (C1). Policies bind to the
+ * API key, so no body names one.
+ */
 export interface ChallengeRequest {
   /**
    * Optional hint identifying the device the challenge is for. No pre-enrolled
@@ -54,9 +61,12 @@ export interface ChallengeRequest {
 
 /** Response body (200) for `POST /api/v1/attest/challenge` (C1). */
 export interface ChallengeResponse {
-  /** Opaque single-use challenge id; pass it back to verify (C2). */
-  challengeId: string;
-  /** base64-encoded nonce the client quotes over. */
+  /**
+   * The backend's handle for this challenge: 32 random bytes, base64url
+   * without padding (43 characters). Pass it to verify (C2); the server finds
+   * the challenge by it. It is the same bytes as the second segment of
+   * {@link challenge}.
+   */
   nonce: string;
   /** ISO 8601 timestamp after which the challenge is no longer valid. */
   expiresAt: string;
@@ -72,8 +82,8 @@ export interface ChallengeResponse {
    * The client parses it to learn the nonce and the ask; nothing else on the
    * customer side needs to. The TPM signs the NONCE ONLY — the ask segment is
    * not covered by the quote. It does not need to be: the ask is bound by the
-   * server's challenge row, keyed by `challengeId`, and C2 appraises against
-   * that row, so tampering with the third segment in transit changes what the
+   * server's challenge row, found by the nonce, and C2 appraises against that
+   * row, so tampering with the third segment in transit changes what the
    * client collects but not what the server demands.
    */
   challenge: string;
@@ -106,7 +116,9 @@ export interface KeyCertification {
  * Documented contents, for the server and the native SDKs that agree on them
  * (the type stays `unknown` because no JS SDK reads inside it):
  *
- *   - the quote, event log, and AK material the existing asks need;
+ *   - the quote, PCR values and event log the existing asks need; the server
+ *     locates the device by the signer named inside the signed quote, so the
+ *     blob carries no device identifier;
  *   - `keyCertification?: KeyCertification` — present only when the challenge
  *     asked for `"key"`. See {@link KeyCertification}.
  */
@@ -121,8 +133,8 @@ export type RequestedDisclosureClass = "verdict" | "pseudonymous" | "derived" | 
 
 /** Request body for `POST /api/v1/attest/verify` (C2). */
 export interface VerifyAttestationRequest {
-  /** The single-use challenge id returned by C1. */
-  challengeId: string;
+  /** The challenge handle returned by C1 ({@link ChallengeResponse.nonce}). */
+  nonce: string;
   /** The opaque evidence blob produced by the client collector. */
   evidence: EvidenceBlob;
   /**

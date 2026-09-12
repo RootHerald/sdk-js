@@ -1,6 +1,6 @@
 # @rootherald/browser
 
-The **page-side** RootHerald SDK (Client ABI 6.0). It orchestrates the
+The **page-side** RootHerald SDK (Client ABI 7.0). It orchestrates the
 **keyless** client flow over the page → extension → native-host bridge and hands
 **opaque blobs** to you (the embedder). Your backend relays those blobs to
 RootHerald with its `rh_sk_` secret (see [`@rootherald/node`](https://www.npmjs.com/package/@rootherald/node)).
@@ -31,7 +31,7 @@ npm install @rootherald/browser
 |---|---|---|
 | `respond(challenge)` | Answer a backend-issued challenge: whatever its ask says (fresh TPM quote, event log, key certification). | `{ evidence, key? }` |
 | `sign(key, data)` | Sign with a certified key. The private half stays in the TPM. | `{ alg: 'ES256', signature }` |
-| `enroll(relay)` | One-time device-key bootstrap. Two network legs are relayed by **your** backend. | `{ deviceId }` |
+| `enroll(relay)` | One-time device-key bootstrap. Two network legs are relayed by **your** backend. | `void` |
 | `getClientStatus()` | **PreCheck** — is the extension there, is the host there. | `ClientStatus` |
 | `getPosture()` | **PreCheck** — the host's local posture signals. | `DevicePosture` |
 
@@ -48,8 +48,8 @@ The page never needs to parse it.
 import { respond } from '@rootherald/browser';
 
 // 1. Your backend calls issueChallenge({ ask: ['identity'] }) and returns
-//    { challengeId, challenge }.
-const { challengeId, challenge } = await fetch('/rh/challenge').then((r) => r.json());
+//    { nonce, challenge }.
+const { nonce, challenge } = await fetch('/rh/challenge').then((r) => r.json());
 
 // 2. The host does what the ask says and returns the opaque evidence.
 const { evidence } = await respond(challenge);
@@ -57,7 +57,7 @@ const { evidence } = await respond(challenge);
 // 3. Hand the blob to YOUR backend, which relays it to RootHerald's verify.
 const result = await fetch('/rh/verify', {
   method: 'POST',
-  body: JSON.stringify({ challengeId, evidence }),
+  body: JSON.stringify({ nonce, evidence }),
 }).then((r) => r.json());
 ```
 
@@ -71,7 +71,7 @@ const result = await respond(challenge, {
     verify: (evidence) =>
       fetch('/rh/verify', {
         method: 'POST',
-        body: JSON.stringify({ challengeId, evidence }),
+        body: JSON.stringify({ nonce, evidence }),
       }).then((r) => r.json()),
   },
 });
@@ -92,12 +92,12 @@ SDK parses it. The backend gets the public JWK from `verify`.
 import { respond, sign } from '@rootherald/browser';
 
 // issueChallenge({ ask: ['identity', 'key'], keyPurpose: 'sign' }) on the backend.
-const { challengeId, challenge } = await fetch('/rh/challenge?key=1').then((r) => r.json());
+const { nonce, challenge } = await fetch('/rh/challenge?key=1').then((r) => r.json());
 
 const { evidence, key } = await respond(challenge);
 localStorage.setItem('rh-key', key!); // your choice of storage
 
-await fetch('/rh/verify', { method: 'POST', body: JSON.stringify({ challengeId, evidence }) });
+await fetch('/rh/verify', { method: 'POST', body: JSON.stringify({ nonce, evidence }) });
 
 // Later — no RootHerald call anywhere. The backend checks the signature with
 // @rootherald/node's verifyKeySignature(jwk, message, signature).
@@ -122,9 +122,9 @@ never POSTs to RootHerald.
 ```ts
 import { enroll } from '@rootherald/browser';
 
-const { deviceId } = await enroll({
+await enroll({
   // Leg 1: POST the blob to YOUR backend, which calls @rootherald/node
-  // `relayEnroll(blob, { challengeId? })` and returns its RelayEnrollResult.
+  // `relayEnroll(blob)` and returns its RelayEnrollResult ({ challenge }).
   enroll: (enrollRequestBlob) =>
     fetch('/rh/enroll', {
       method: 'POST',
@@ -132,7 +132,7 @@ const { deviceId } = await enroll({
     }).then((r) => r.json()),
 
   // Leg 2: POST the activation blob to YOUR backend, which calls
-  // @rootherald/node `relayActivate(blob)`.
+  // @rootherald/node `relayActivate(blob)` and keeps the deviceId it returns.
   activate: (activationBlob) =>
     fetch('/rh/activate', {
       method: 'POST',
@@ -142,11 +142,12 @@ const { deviceId } = await enroll({
 ```
 
 `enroll` runs `enroll-begin` → `relay.enroll` → `enroll-complete` →
-`relay.activate` and resolves with `{ deviceId }`. It is idempotent: a device
-that has enrolled before runs the same two legs again and gets the same
-`deviceId`. Re-enrollment is also how a device rotates its attestation key, so
-it is never short-circuited. `deviceId` is an internal handle, not the
-`ueid` a verdict returns; key your tables on `verdict.device.ueid`.
+`relay.activate` and resolves with nothing: the page learns nothing about the
+device it enrolled. Your backend learns the device's alias from
+`relayActivate`, and verdicts carry it as `verdict.device.ueid`; key your
+tables on that. `enroll` is idempotent: a device that has enrolled before runs
+the same two legs again. Re-enrollment is also how a device rotates its
+attestation key, so it is never short-circuited.
 
 The **respond-first, enroll-on-miss** pattern: call `respond`, catch
 `NotEnrolledError`, run `enroll`, retry `respond`.

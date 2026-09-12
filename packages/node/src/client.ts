@@ -117,8 +117,8 @@ export interface IssueChallengeOptions {
 
 /** Options for {@link RootHeraldClient.verify}. */
 export interface AttestOptions {
-  /** The single-use challenge id from {@link RootHeraldClient.issueChallenge}. */
-  challengeId: string;
+  /** The challenge handle from {@link RootHeraldClient.issueChallenge}. */
+  nonce: string;
   /**
    * Optional disclosure ceiling to request for this appraisal
    * (`"verdict" | "pseudonymous" | "derived" | "full"`). Omitted => the
@@ -163,26 +163,15 @@ export type AttestResult = AttestationVerdict & {
   key?: AttestResultKey;
 };
 
-/** Options for {@link RootHeraldClient.relayEnroll}. */
-export interface RelayEnrollOptions {
-  /**
-   * A live challenge id from {@link RootHeraldClient.issueChallenge}. When
-   * given, admission runs against the policy bound to that challenge instead
-   * of the tenant default, so a device that could never satisfy it is refused
-   * (with {@link AdmissionRefusedError}) before it gets an attestation key.
-   */
-  challengeId?: string;
-}
-
 /**
  * Server-side RootHerald client for the Background-Check flow.
  *
  * @example
  * ```ts
  * const rh = new RootHeraldClient({ secretKey: process.env.RH_SECRET_KEY! });
- * const { challengeId, challenge } = await rh.issueChallenge({ ask: ["identity"] });
+ * const { nonce, challenge } = await rh.issueChallenge({ ask: ["identity"] });
  * // relay `challenge` to the client; it responds with `evidence`
- * const result = await rh.verify(evidence, { challengeId });
+ * const result = await rh.verify(evidence, { nonce });
  * if (result.device.verdict === "pass") { ... }
  * ```
  */
@@ -223,7 +212,7 @@ export class RootHeraldClient {
    * `POST /api/v1/attest/challenge` — mints a single-use challenge that
    * carries the ask. Relay the `challenge` string to the client verbatim; it
    * responds with an evidence blob, which you submit with {@link verify} under
-   * the returned `challengeId`.
+   * the returned `nonce`.
    */
   async issueChallenge(opts?: IssueChallengeOptions): Promise<ChallengeResponse> {
     const body: ChallengeRequest = {};
@@ -236,19 +225,17 @@ export class RootHeraldClient {
       body,
     );
     if (
-      typeof data?.challengeId !== "string" ||
       typeof data?.nonce !== "string" ||
       typeof data?.expiresAt !== "string" ||
       typeof data?.challenge !== "string"
     ) {
       throw new RootHeraldApiError(
-        "challenge response missing challengeId/nonce/expiresAt/challenge",
+        "challenge response missing nonce/expiresAt/challenge",
         "INVALID_RESPONSE",
         200,
       );
     }
     return {
-      challengeId: data.challengeId,
       nonce: data.nonce,
       expiresAt: data.expiresAt,
       challenge: data.challenge,
@@ -268,15 +255,15 @@ export class RootHeraldClient {
    * @param evidence  Opaque blob from the client; passed through verbatim.
    */
   async verify(evidence: EvidenceBlob, opts: AttestOptions): Promise<AttestResult> {
-    if (!opts || typeof opts.challengeId !== "string" || !opts.challengeId) {
+    if (!opts || typeof opts.nonce !== "string" || !opts.nonce) {
       throw new RootHeraldError(
-        "verify() requires `challengeId` (from issueChallenge)",
-        "MISSING_CHALLENGE_ID",
+        "verify() requires `nonce` (from issueChallenge)",
+        "MISSING_NONCE",
       );
     }
 
     const body: VerifyAttestationRequest = {
-      challengeId: opts.challengeId,
+      nonce: opts.nonce,
       evidence,
     };
     if (opts.requestedDisclosureClass !== undefined) {
@@ -319,115 +306,114 @@ export class RootHeraldClient {
   }
 
   /**
-   * Handle the POST the RootHerald companion app makes to your registered mobile
-   * `appVerifyUrl` (the mobile-bridge flow, for browser-only customers). The app
-   * sends `{ challengeId, evidence: { iosAttestation: {...} } }`; this validates
-   * that shape and brokers the metered `verify()` with your `rh_sk_` — exactly
-   * like desktop. Store the returned verdict keyed by `challengeId` so the page
-   * that reopens can poll it.
+   * Handle the POST the RootHerald bridge makes to your registered mobile
+   * `appVerifyUrl` (the mobile-bridge flow, for browser-only customers). The
+   * body is `{ nonce, evidence: { iosAttestation: { assertion, keyId } } }`;
+   * this validates that shape and brokers the metered `verify()` with your
+   * `rh_sk_` — exactly like desktop. Store the returned verdict keyed by
+   * `nonce`; the page the app reopens receives it as `?nonce=` and polls for
+   * the result.
    *
    * ```ts
    * // POST /api/rootherald/app-verify  (your registered appVerifyUrl)
    * const result = await rh.verifyMobileEvidence(req.body);
-   * await store.put(req.body.challengeId, result);
+   * await store.put(req.body.nonce, result);
    * res.json({ ok: true });
    * ```
    */
   async verifyMobileEvidence(body: MobileAppVerifyRequest): Promise<AttestResult> {
-    if (!body || typeof body.challengeId !== "string" || !body.challengeId) {
+    if (!body || typeof body.nonce !== "string" || !body.nonce) {
       throw new RootHeraldError(
-        "verifyMobileEvidence() requires a body with `challengeId`",
-        "MISSING_CHALLENGE_ID",
+        "verifyMobileEvidence() requires a body with `nonce`",
+        "MISSING_NONCE",
       );
     }
     if (
       !body.evidence?.iosAttestation ||
-      typeof body.evidence.iosAttestation.attestationObject !== "string" ||
+      typeof body.evidence.iosAttestation.assertion !== "string" ||
       typeof body.evidence.iosAttestation.keyId !== "string"
     ) {
       throw new InvalidEvidenceError(
-        "verifyMobileEvidence() body is missing evidence.iosAttestation.{attestationObject,keyId}",
+        "verifyMobileEvidence() body is missing evidence.iosAttestation.{assertion,keyId}",
       );
     }
-    return this.verify(body.evidence, { challengeId: body.challengeId });
+    return this.verify(body.evidence, { nonce: body.nonce });
   }
 
   /**
    * Enroll relay — leg 1. `POST /api/v1/attest/enroll`.
    *
    * Relays the client's `EnrollBegin()` blob to RootHerald with the `rh_sk_`
-   * secret and returns the challenge to hand back to the client's
-   * `EnrollComplete`, whose result goes to {@link relayActivate}.
+   * secret, verbatim, and returns the 201 body to hand back to the client's
+   * `EnrollComplete`, whose result goes to {@link relayActivate}. An iOS blob
+   * has nothing to activate; its 201 is `{}`.
    *
-   * `deviceId` is this tenant's alias for the device, not a global identifier.
    * Every enroll returns a challenge, including for a device already known:
-   * re-enrollment is how a device rotates its attestation key.
+   * re-enrollment is how a device rotates its attestation key. The device's
+   * alias is returned by {@link relayActivate}, not here.
    *
    * The client never holds the `rh_sk_` key and never talks to RootHerald; this
    * backend helper is the only thing that does.
    */
-  async relayEnroll(
-    enrollRequestBlob: EnrollRequestBlob,
-    opts?: RelayEnrollOptions,
-  ): Promise<RelayEnrollResult> {
-    if (
-      !enrollRequestBlob ||
-      typeof enrollRequestBlob.ekPublicKey !== "string" ||
-      typeof enrollRequestBlob.akPublicArea !== "string"
-    ) {
+  async relayEnroll(enrollRequestBlob: EnrollRequestBlob): Promise<RelayEnrollResult> {
+    if (!isWellFormedEnrollBlob(enrollRequestBlob)) {
       throw new RootHeraldError(
-        "relayEnroll() requires an enroll request blob with `ekPublicKey` and `akPublicArea`",
+        "relayEnroll() requires an enroll request blob with `ekPublicKey` and `akPublicArea`, or an iOS blob with `iosKeyId`, `iosAttestationObject` and `nonce`",
         "INVALID_ENROLL_BLOB",
       );
     }
 
-    let path = "/api/v1/attest/enroll";
-    if (opts?.challengeId !== undefined) {
-      if (typeof opts.challengeId !== "string" || !opts.challengeId) {
-        throw new RootHeraldError(
-          "relayEnroll() `challengeId` must be a non-empty string when given",
-          "MISSING_CHALLENGE_ID",
-        );
-      }
-      path += `?challengeId=${encodeURIComponent(opts.challengeId)}`;
+    const data = await this.post<Record<string, unknown>>(
+      "/api/v1/attest/enroll",
+      enrollRequestBlob,
+    );
+    if (!data || typeof data !== "object") {
+      throw new RootHeraldApiError("enroll response is not an object", "INVALID_RESPONSE", 201);
     }
-
-    const data = await this.post<EnrollActivationChallenge>(path, enrollRequestBlob);
+    if (enrollRequestBlob.platform === "ios" && !("enrollmentId" in data)) {
+      return { challenge: {} };
+    }
     if (
-      !data ||
-      typeof data.deviceId !== "string" ||
-      typeof data.credentialBlob !== "string" ||
-      typeof data.encryptedSecret !== "string"
+      typeof data.enrollmentId !== "string" ||
+      !(
+        (typeof data.credentialBlob === "string" && typeof data.encryptedSecret === "string") ||
+        typeof data.challengeNonce === "string"
+      )
     ) {
       throw new RootHeraldApiError(
-        "enroll response missing deviceId/credentialBlob/encryptedSecret",
+        "enroll response missing enrollmentId with credentialBlob/encryptedSecret or challengeNonce",
         "INVALID_RESPONSE",
         201,
       );
     }
-    return { deviceId: data.deviceId, challenge: data };
+    return { challenge: data as unknown as EnrollActivationChallenge };
   }
 
   /**
    * Enroll relay — leg 2. `POST /api/v1/attest/activate`.
    *
-   * Relays the client's `EnrollComplete()` blob (the decrypted credential
-   * secret) to RootHerald, completing the EK→AK credential-activation handshake.
+   * Relays the client's `EnrollComplete()` blob (the released credential
+   * secret, or the enclave signature) to RootHerald, completing the
+   * credential-activation handshake.
    *
    * Returns the terminal `{ deviceId, status?, enrolledAt? }` body; `deviceId`
-   * is the load-bearing field the backend maps to its user.
+   * is this tenant's alias for the device, the field the backend maps to its
+   * user. It stays on the backend and is never relayed to the device.
    */
   async relayActivate(
     activationResponse: EnrollActivationResponse,
   ): Promise<RelayActivateResponse> {
     if (
       !activationResponse ||
-      typeof activationResponse.deviceId !== "string" ||
-      !activationResponse.deviceId ||
-      typeof activationResponse.decryptedSecret !== "string"
+      typeof activationResponse.enrollmentId !== "string" ||
+      !activationResponse.enrollmentId ||
+      !(
+        typeof activationResponse.decryptedSecret === "string" ||
+        typeof activationResponse.signature === "string"
+      )
     ) {
       throw new RootHeraldError(
-        "relayActivate() requires an activation response with `deviceId` and `decryptedSecret`",
+        "relayActivate() requires an activation response with `enrollmentId` and `decryptedSecret` or `signature`",
         "INVALID_ACTIVATION_BLOB",
       );
     }
@@ -471,6 +457,19 @@ export class RootHeraldClient {
     }
     return parseJson<T>(res);
   }
+}
+
+/** The per-platform enroll body has the fields the server binds for that platform. */
+function isWellFormedEnrollBlob(blob: EnrollRequestBlob): boolean {
+  if (!blob || typeof blob !== "object") return false;
+  if (blob.platform === "ios") {
+    return (
+      typeof blob.iosKeyId === "string" &&
+      typeof blob.iosAttestationObject === "string" &&
+      typeof blob.nonce === "string"
+    );
+  }
+  return typeof blob.ekPublicKey === "string" && typeof blob.akPublicArea === "string";
 }
 
 /** Parses a JSON response body, mapping a parse failure to a typed API error. */

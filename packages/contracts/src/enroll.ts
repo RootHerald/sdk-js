@@ -1,20 +1,20 @@
 /**
- * Client ABI 2.0 — the enroll handshake blobs (client-neutral).
+ * The enroll handshake blobs (client-neutral), Client ABI 7.0.
  *
  * ──────────────────────────────────────────────────────────────────────────
- * The client verbs (Client ABI 6.0; language-neutral; the client holds NO
- * RootHerald key and opens NO socket to RootHerald — it only does local TPM
- * work and hands opaque blobs to the embedder, whose backend relays them):
+ * The client verbs (language-neutral; the client holds NO RootHerald key and
+ * opens NO socket to RootHerald — it only does local TPM work and hands opaque
+ * blobs to the embedder, whose backend relays them):
  *
  *   Open / Close     — acquire and release the TPM session every other verb
  *                      runs inside.
  *   PreCheck         — local readiness signals (TPM reachable? enrolled? Secure
  *                      Boot on?). Signals, NEVER a verdict.
  *   EnrollBegin      — `-> EnrollRequestBlob`. Then
- *   EnrollComplete   — `(EnrollActivationChallenge) -> EnrollActivationResponse`
- *                      (+ `deviceId`, known after leg 1). One-time device-key
- *                      bootstrap under a single elevation: gen AK, prove EK→AK
- *                      via TPM2_MakeCredential / TPM2_ActivateCredential.
+ *   EnrollComplete   — `(EnrollActivationChallenge) -> EnrollActivationResponse`.
+ *                      One-time device-key bootstrap under a single elevation:
+ *                      gen AK, prove EK→AK via TPM2_MakeCredential /
+ *                      TPM2_ActivateCredential.
  *   Respond          — `(challenge) -> EvidenceBlob` (see `background-check.ts`).
  *                      Takes the `rhc1.` challenge string verbatim, does what
  *                      its ask says (quote, event log, key certification), and
@@ -29,45 +29,35 @@
  * `rh_sk_` secret key (see the relay pair in `server.ts`). EK cert travels as
  * plaintext PEM for v1 (the opt-in deniability layer is deferred).
  *
- * Field names are canonical: they are exactly the JSON keys the native client
- * already emits (`sdk-native` `rootherald_win.cpp` `BuildEnrollFields`) and the
- * server already binds (`platform` `EnrollmentRequest` / `EnrollmentResponse` /
- * `ActivationRequest`). Pure types; no runtime code.
+ * No identifier the server assigns reaches the device. Enrollment is keyed by
+ * the `enrollmentId` the server mints on leg 1 and spends on leg 2; the
+ * backend learns the device's alias from activation and from verdicts, never
+ * from a relayed body.
+ *
+ * Field names are canonical: they are exactly the JSON keys the native clients
+ * emit and the server binds (`platform` `EnrollmentRequest` /
+ * `EnrollmentResponse` / `ActivationRequest`). Pure types; no runtime code.
  * ──────────────────────────────────────────────────────────────────────────
  */
 
-import type { Platform } from "./eat.js";
-
 /**
- * `EnrollBegin()` output — the body of `POST /api/v1/attest/enroll`.
- *
- * Mirrors the server `EnrollmentRequest` DTO and the native client's
- * `BuildEnrollFields`. The client gathers the EK material and the freshly
- * created AK public area; the backend relays this verbatim to RootHerald, which
- * validates the EK chain, template-checks the AK, and returns an
- * {@link EnrollActivationChallenge}.
+ * `EnrollBegin()` output on a TPM 2.0 platform — the body of
+ * `POST /api/v1/attest/enroll`. The server validates the EK chain,
+ * template-checks the AK, and returns an {@link EnrollActivationChallenge}.
  */
-export interface EnrollRequestBlob {
-  /**
-   * base64 platform-native EK public blob (Windows: NCrypt `PCP_EKPUB`). The
-   * stable hardware anchor the deterministic `deviceId` is derived from.
-   */
+export interface TpmEnrollRequestBlob {
+  /** base64 platform-native EK public blob (Windows: NCrypt `PCP_EKPUB`). */
   ekPublicKey: string;
   /**
    * base64 `TPM2B_PUBLIC` of the AK (length-prefixed `TPMT_PUBLIC`, exactly what
    * `TPM2_CreatePrimary` emits) — the server hashes it into the AK Name used by
-   * `TPM2_MakeCredential`.
+   * `TPM2_MakeCredential`, and later finds the device by the quote's signer.
    */
   akPublicArea: string;
-  /**
-   * Reporting platform. The enroll endpoint accepts the desktop TPM platforms
-   * (`"windows" | "linux" | "macos"`) for v1; the wider {@link Platform} union is
-   * reused for a single source of truth.
-   */
-  platform: Platform;
+  platform: "windows" | "linux";
   /**
    * PEM-encoded EK certificate. Optional: firmware TPMs (e.g. Intel PTT) ship no
-   * NV-stored EK cert and the manufacturer AIA fallback may be unavailable.
+   * NV-stored EK cert; the server then fetches the vendor certificate itself.
    */
   ekCertPem?: string;
   /**
@@ -76,46 +66,101 @@ export interface EnrollRequestBlob {
    * capped at 8. Order is not significant; the source is not labeled.
    */
   ekCertificateChain?: string[];
+  /**
+   * The TPM's own, unsigned answer to `TPM2_GetCapability`. The server reads it
+   * only downward — to recognise a software TPM that presents no EK
+   * certificate — never to promote a device.
+   */
+  tpmSelfReport?: {
+    manufacturer: string;
+    vendorString: string;
+  };
 }
 
 /**
- * The MakeCredential challenge — the `201` response body of
- * `POST /api/v1/attest/enroll`, and the input to `EnrollComplete()`.
+ * `EnrollBegin()` output on macOS. The Secure Enclave key stands in for both
+ * the EK and the AK: `ekPublicKey` and `akPublicArea` carry the SAME key
+ * (X9.63 uncompressed, 65 bytes, base64). There is no EK certificate.
+ */
+export interface SecureEnclaveEnrollRequestBlob {
+  ekPublicKey: string;
+  akPublicArea: string;
+  platform: "macos";
+}
+
+/**
+ * The iOS enroll body. One leg: Apple's attestation object carries the
+ * certificate chain, the attested key and the challenge binding, so there is
+ * nothing to activate and the 201 is `{}`.
+ */
+export interface AppAttestEnrollRequestBlob {
+  platform: "ios";
+  /** base64 App Attest key id. */
+  iosKeyId: string;
+  /** base64 CBOR App Attest attestation object. */
+  iosAttestationObject: string;
+  /**
+   * The challenge handle the attestation was made over: the second segment
+   * of the `rhc1.` challenge string, verbatim (base64url, unpadded). The
+   * server finds the challenge by it and spends it.
+   */
+  nonce: string;
+}
+
+/**
+ * `EnrollBegin()` output — the body of `POST /api/v1/attest/enroll`,
+ * discriminated by `platform`. The backend relays it verbatim.
+ */
+export type EnrollRequestBlob =
+  | TpmEnrollRequestBlob
+  | SecureEnclaveEnrollRequestBlob
+  | AppAttestEnrollRequestBlob;
+
+/**
+ * The `201` response body of `POST /api/v1/attest/enroll`, and the input to
+ * `EnrollComplete()`. Relayed to the device verbatim.
  *
- * Mirrors the server `EnrollmentResponse` DTO. `credentialBlob` and
- * `encryptedSecret` are the `TPM2_MakeCredential` outputs (already TPM2B-framed);
- * the client feeds them straight into `TPM2_ActivateCredential`. Every enroll
- * returns all three fields, including a re-enroll of a known device: re-enrollment
- * is how a device rotates its attestation key.
+ * TPM: `credentialBlob` and `encryptedSecret` are the `TPM2_MakeCredential`
+ * outputs (already TPM2B-framed); the client feeds them straight into
+ * `TPM2_ActivateCredential`. macOS: `challengeNonce` is the nonce the enclave
+ * key signs. iOS enrollment returns `{}` instead (see
+ * {@link import('./server.js').RelayEnrollResponse}).
+ *
+ * Every enroll returns a challenge, including a re-enroll of a known device:
+ * re-enrollment is how a device rotates its attestation key.
  */
 export interface EnrollActivationChallenge {
-  /** The deterministic device id (UUID), derived server-side from the EK. */
-  deviceId: string;
-  /** base64 `TPM2_MakeCredential` credential blob (`id-object`). */
-  credentialBlob: string;
-  /** base64 `TPM2_MakeCredential` encrypted secret (`encrypted-secret`). */
-  encryptedSecret: string;
+  /**
+   * The server's handle for this open enrollment (UUID). Echoed back in the
+   * {@link EnrollActivationResponse}; spent by activation.
+   */
+  enrollmentId: string;
+  /** base64 `TPM2_MakeCredential` credential blob (`id-object`). Windows/Linux. */
+  credentialBlob?: string;
+  /** base64 `TPM2_MakeCredential` encrypted secret (`encrypted-secret`). Windows/Linux. */
+  encryptedSecret?: string;
+  /** base64 nonce for the enclave key to sign. macOS. */
+  challengeNonce?: string;
 }
 
 /**
  * `EnrollComplete()` output — the body of `POST /api/v1/attest/activate`.
  *
- * Mirrors the server `ActivationRequest` DTO. The client decrypts the challenge
- * inside the TPM and returns the released secret to prove EK→AK binding.
+ * Mirrors the server `ActivationRequest` DTO. The proof is per platform: a
+ * TPM returns the secret it released inside `TPM2_ActivateCredential`; a
+ * Secure Enclave returns a signature over `challengeNonce`.
  */
 export interface EnrollActivationResponse {
-  /** The `deviceId` from the {@link EnrollActivationChallenge}. */
-  deviceId: string;
+  /** The `enrollmentId` from the {@link EnrollActivationChallenge}. */
+  enrollmentId: string;
   /**
    * base64 of the 32-byte secret released by `TPM2_ActivateCredential` — proof
-   * the AK is bound to the attested EK.
+   * the AK is bound to the attested EK. Windows/Linux.
    */
-  decryptedSecret: string;
+  decryptedSecret?: string;
   /**
-   * Optional base64 AK public area re-sent for the server's anti
-   * key-substitution check (server `ActivationRequest.AkPublicKey`). The current
-   * Windows client omits it; the server validates it against the
-   * credential-activated AK when present.
+   * base64 ECDSA-P256-SHA256 signature over `challengeNonce`, DER or
+   * IEEE-P1363. macOS.
    */
-  akPublicKey?: string;
+  signature?: string;
 }

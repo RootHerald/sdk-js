@@ -8,8 +8,11 @@
  * The bridge only opens the app — evidence still flows app → customer backend →
  * RootHerald verify (metered on the customer's `rh_sk_`), exactly as desktop.
  *
- * See docs/mobile-bridge-orchestration-plan.md for the full architecture.
+ * The bridge routes by the nonce inside the challenge; the challenge row
+ * supplies the tenant. Nothing on the link or in a body names one.
  */
+
+import type { AppAttestEnrollRequestBlob } from "./enroll.js";
 
 /**
  * Per-tenant mobile configuration, registered in the dashboard. The bridge looks
@@ -25,6 +28,7 @@ export interface TenantMobileConfig {
   /**
    * Absolute https URL the app reopens in Safari after posting evidence — the
    * customer page that then polls their own result endpoint for the verdict.
+   * The bridge appends `?nonce=<handle>` so the page knows which result to poll.
    */
   returnUrl: string;
   /** ISO timestamp of the last update (server-set). */
@@ -32,17 +36,30 @@ export interface TenantMobileConfig {
 }
 
 /**
+ * The body the RootHerald bridge forwards to the customer's registered enroll
+ * URL. The customer's backend hands `enrollment` to
+ * {@link RootHeraldClient.relayEnroll} verbatim.
+ */
+export interface MobileAppEnrollRequest {
+  /** The challenge handle the app enrolled against ({@link ChallengeResponse.nonce}). */
+  nonce: string;
+  /** The iOS enroll body, as the app's SDK emitted it. */
+  enrollment: AppAttestEnrollRequestBlob;
+}
+
+/**
  * The body the RootHerald bridge forwards to the customer's registered
  * `appVerifyUrl` (identical shape to the desktop evidence blob's iOS branch).
- * The customer's backend hands this to {@link RootHerald.verifyMobileEvidence}.
+ * The customer's backend hands this to {@link RootHeraldClient.verifyMobileEvidence}.
  */
 export interface MobileAppVerifyRequest {
-  challengeId: string;
+  /** The challenge handle the app answered ({@link ChallengeResponse.nonce}). */
+  nonce: string;
   evidence: {
     iosAttestation: {
-      /** base64 CBOR App Attest attestation object. */
-      attestationObject: string;
-      /** base64 App Attest key id. */
+      /** base64 CBOR App Attest assertion over SHA-256 of the nonce. */
+      assertion: string;
+      /** base64 App Attest key id; the server locates the device by it. */
       keyId: string;
     };
   };
@@ -56,10 +73,6 @@ export interface BuildMobileAttestLinkOptions {
    * DIFFERENT host than the page (iOS won't hand a same-host link to an app).
    */
   bridgeBaseUrl: string;
-  /** The customer's tenant slug / public handle (as registered with RootHerald). */
-  tenant: string;
-  /** The single-use challenge id the customer's backend already minted. */
-  challengeId: string;
   /**
    * The relayed challenge string, exactly as `ChallengeResponse.challenge`
    * (`rhc1.<nonce>.<ask>`). The app signs over this string and the server
@@ -70,12 +83,12 @@ export interface BuildMobileAttestLinkOptions {
 
 /**
  * Build the Universal Link that opens the RootHerald companion app:
- * `<bridgeBaseUrl>/try/attest?tenant=&challengeId=&challenge=`. It carries
- * only the tenant + challenge — **no customer URLs**. The app collects App Attest
- * evidence and POSTs it to the fixed bridge endpoint (`<bridgeBaseUrl>/evidence`);
- * the bridge forwards it to your server-side-registered backend, which brokers the
- * metered verify with your key. Because the app only ever posts to RootHerald, a
- * page can't redirect the evidence elsewhere.
+ * `<bridgeBaseUrl>/try/attest?challenge=`. It carries only the challenge —
+ * **no customer URLs**. The app collects App Attest evidence and POSTs it to the
+ * fixed bridge endpoint (`<bridgeBaseUrl>/evidence`); the bridge forwards it to
+ * your server-side-registered backend, which brokers the metered verify with
+ * your key. Because the app only ever posts to RootHerald, a page can't
+ * redirect the evidence elsewhere.
  *
  * The page **must render the returned link in a real `<a href>` the user taps** —
  * iOS only fires a Universal Link on a genuine tap, never a redirect or JS nav.
@@ -83,17 +96,12 @@ export interface BuildMobileAttestLinkOptions {
  * ```ts
  * anchorEl.href = buildMobileAttestLink({
  *   bridgeBaseUrl: "https://bridge.rootherald.io",
- *   tenant: "acme",
- *   challengeId, challenge,
+ *   challenge,
  * });
  * ```
  */
 export function buildMobileAttestLink(opts: BuildMobileAttestLinkOptions): string {
   const base = opts.bridgeBaseUrl.replace(/\/+$/, "");
-  const params = new URLSearchParams({
-    tenant: opts.tenant,
-    challengeId: opts.challengeId,
-    challenge: opts.challenge,
-  });
+  const params = new URLSearchParams({ challenge: opts.challenge });
   return `${base}/try/attest?${params.toString()}`;
 }

@@ -2,6 +2,48 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.18
+
+Wire 7.0. Nothing a client sends locates a row: the server resolves the
+tenant from the key, the challenge from the nonce the proof was made over,
+the enrollment from the `enrollmentId` it minted, and the device from the
+proof itself. A backend on this version cannot drive a 6.0 client, and the
+reverse.
+
+### Breaking
+
+- `issueChallenge` returns `{ nonce, challenge, expiresAt }`. `challengeId`
+  is gone; `nonce` (base64url, unpadded, the second segment of `challenge`)
+  is the handle. `verify(evidence, { nonce })` takes it; a missing one is
+  `MISSING_NONCE`. `VerifyAttestationRequest` carries `nonce`, not
+  `challengeId`.
+- `relayEnroll(blob)` takes no options and sends no query string. It returns
+  `{ challenge }` only — the 201 body, relayed to the device verbatim — with
+  no `deviceId`. The 201 is `{ enrollmentId, credentialBlob, encryptedSecret }`
+  (TPM), `{ enrollmentId, challengeNonce }` (macOS), or `{}` (iOS).
+  `RelayEnrollOptions` is removed.
+- `relayActivate(blob)` requires `enrollmentId` and one of `decryptedSecret`
+  or `signature`. `deviceId`, `challengeId` and `akPublicKey` are gone from
+  the activation body. The response `{ deviceId, status?, enrolledAt? }` is
+  unchanged; it stays on the backend and is never relayed to the device.
+- `EnrollRequestBlob` is a union discriminated by `platform`:
+  `TpmEnrollRequestBlob` (with optional `tpmSelfReport`, no
+  `firmwareVersion`), `SecureEnclaveEnrollRequestBlob`, and
+  `AppAttestEnrollRequestBlob` (`{ platform: "ios", iosKeyId,
+  iosAttestationObject, nonce }`).
+- `verifyMobileEvidence(body)` requires `body.nonce` and
+  `evidence.iosAttestation.{assertion,keyId}`; an `attestationObject` at
+  verify is refused. `MobileAppVerifyRequest` matches.
+- `buildMobileAttestLink({ bridgeBaseUrl, challenge })` renders
+  `<base>/try/attest?challenge=`; the `tenant` and `challengeId` inputs are
+  gone. The bridge reopens the page with `?nonce=` (was `?rhcid=`).
+
+### Added
+
+- `MobileAppEnrollRequest { nonce, enrollment }`, the body the bridge forwards
+  to a registered enroll URL; hand `enrollment` to `relayEnroll`.
+- `RelayEnrollResponse`, the enroll 201 body including the empty iOS form.
+
 ## 0.1.0-alpha.17
 
 ### Breaking
