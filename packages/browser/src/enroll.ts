@@ -16,10 +16,14 @@
  * The browser only moves blobs across the page<->extension<->host bridge.
  *
  * Flow:
- *   1. `enroll-begin` {}            -> { enrollRequestBlob }   (host EnrollBegin)
- *   2. relay.enroll(enrollRequestBlob) -> RelayEnrollResult { deviceId, challenge }
- *   3. `enroll-complete` { challenge } -> { activationBlob }   (host EnrollComplete)
- *   4. relay.activate(activationBlob)  -> done (deviceId)
+ *   1. `enroll-begin` {}               -> { enrollRequestBlob }   (host EnrollBegin)
+ *   2. relay.enroll(enrollRequestBlob) -> RelayEnrollResult { challenge }
+ *   3. `enroll-complete` { challenge } -> { activationBlob }     (host EnrollComplete)
+ *   4. relay.activate(activationBlob)  -> done
+ *
+ * Nothing the server assigns comes back to the page. The device's alias is
+ * returned to the backend by `relayActivate` and stays there; a verdict's
+ * `device.ueid` is what the backend keys on.
  */
 
 import type {
@@ -44,7 +48,7 @@ import { sendRequest, type MessageWindow } from './transport.js';
 export interface EnrollRelay {
   /**
    * Relay leg 1. POST `enrollRequestBlob` to your backend, which calls
-   * @rootherald/node `relayEnroll(blob, { challengeId? })` and returns its
+   * @rootherald/node `relayEnroll(blob)` and returns its
    * {@link RelayEnrollResult}. Admission runs under the identity policy bound
    * to the backend's API key.
    */
@@ -52,7 +56,8 @@ export interface EnrollRelay {
   /**
    * Relay leg 2. POST the `activationBlob` to your backend, which calls
    * @rootherald/node `relayActivate(blob)`. The return value is ignored;
-   * resolve however your transport does.
+   * resolve however your transport does. Do not send the backend's
+   * `deviceId` back to the page.
    */
   activate(
     activationBlob: EnrollActivationResponse,
@@ -66,18 +71,6 @@ export interface EnrollOptions {
   win?: MessageWindow;
 }
 
-export interface EnrollResult {
-  /**
-   * Internal enrollment handle for the device.
-   *
-   * NOT the EAT `ueid`, and not equal to it. The `ueid` a verdict returns is
-   * scoped to the calling tenant, so it differs from this value (and differs
-   * between tenants for the same machine). Key your own tables on
-   * `verdict.device.ueid`, not on this.
-   */
-  deviceId: string;
-}
-
 // Enrollment can block on a user-facing UAC prompt, so each native-host leg gets
 // a generous default well above the respond timeout.
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -85,9 +78,10 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 /**
  * Enroll this device with RootHerald via the embedder-relayed handshake.
  *
- * Idempotent — a device that has enrolled before runs the same two legs again
- * and resolves with the same `deviceId`. Re-enrollment is also how a device
- * rotates its attestation key, so it is never short-circuited.
+ * Idempotent — a device that has enrolled before runs the same two legs again.
+ * Re-enrollment is also how a device rotates its attestation key, so it is
+ * never short-circuited. Resolves with nothing: the page learns nothing about
+ * the device it enrolled, by design.
  *
  * @param relay  Embedder callbacks that bridge the two network legs to the
  *               embedder's backend (which holds `rh_sk_`). The browser never
@@ -103,7 +97,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 export async function enroll(
   relay: EnrollRelay,
   opts: EnrollOptions = {},
-): Promise<EnrollResult> {
+): Promise<void> {
   if (!relay || typeof relay.enroll !== 'function' || typeof relay.activate !== 'function') {
     throw new TypeError(
       'enroll: `relay` must provide `enroll` and `activate` callbacks that bridge to your backend',
@@ -151,7 +145,4 @@ export async function enroll(
 
   // ── Relay leg 2: embedder POSTs the activation blob to its backend ─────────
   await relay.activate(activationBlob);
-
-  // deviceId is known after leg 1 (carried on the challenge / relay result).
-  return { deviceId: relayResult.deviceId };
 }

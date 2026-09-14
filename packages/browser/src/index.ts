@@ -1,5 +1,5 @@
 /**
- * @rootherald/browser — the page-side RootHerald SDK (Client ABI 6.0).
+ * @rootherald/browser — the page-side RootHerald SDK (Client ABI 7.0).
  *
  * Orchestrates the KEYLESS client flow over the page <-> extension <-> native-host
  * bridge and hands opaque blobs to the EMBEDDER. The client verbs:
@@ -43,7 +43,6 @@ export {
   enroll,
   type EnrollRelay,
   type EnrollOptions,
-  type EnrollResult,
 } from './enroll.js';
 export {
   getClientStatus,
@@ -111,6 +110,7 @@ export type {
 // The relay outcome shapes the embedder's backend (@rootherald/node) returns to
 // the `enroll(relay)` callbacks. Type-only; sourced from the server subpath.
 export type {
+  RelayEnrollResponse,
   RelayEnrollResult,
   RelayActivateResponse,
 } from '@rootherald/contracts/server';

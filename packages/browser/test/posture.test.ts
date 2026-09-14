@@ -10,12 +10,12 @@ describe('getPosture', () => {
     const win = new FakeWindow({
       extensionPresent: true,
       hostPresent: true,
-      posture: { abi: '6.0', host: '1.4.0', enrolled: false, secureBoot: true },
+      posture: { abi: '7.0', host: '1.4.0', enrolled: false, secureBoot: true },
     });
     const out = await getPosture({ ...FAST, win });
     expect(win.requests[0]).toMatchObject({ action: 'posture' });
-    expect(out).toEqual({ abi: '6.0', host: '1.4.0', enrolled: false, secureBoot: true });
-    expect(out.abi).toBe('6.0');
+    expect(out).toEqual({ abi: '7.0', host: '1.4.0', enrolled: false, secureBoot: true });
+    expect(out.abi).toBe('7.0');
   });
 
   it('throws ExtensionMissingError when the extension never responds', async () => {

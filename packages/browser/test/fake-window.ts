@@ -1,7 +1,7 @@
 /**
  * A minimal fake `window` that simulates the RootHerald extension's content
  * script. Tests configure how it responds to each action, mirroring the real
- * Client ABI 6.0 postMessage wire (content-script / service-worker).
+ * Client ABI 7.0 postMessage wire (content-script / service-worker).
  */
 
 import type { MessageWindow } from '../src/transport.js';
@@ -60,7 +60,7 @@ const DEFAULT_ENROLL_REQUEST: EnrollRequestBlob = {
 };
 
 const DEFAULT_ACTIVATION: EnrollActivationResponse = {
-  deviceId: 'device-1',
+  enrollmentId: 'enr-1',
   decryptedSecret: 'secret-b64',
 };
 
@@ -139,7 +139,7 @@ export class FakeWindow implements MessageWindow {
         type: 'rootherald-response',
         requestId,
         success: true,
-        data: { status: 'ready', platform: 'windows', hasTpm: 'true', abi: '6.0', host: '1.4.0' },
+        data: { status: 'ready', platform: 'windows', hasTpm: 'true', abi: '7.0', host: '1.4.0' },
       });
       return;
     }
@@ -150,7 +150,7 @@ export class FakeWindow implements MessageWindow {
         type: 'rootherald-response',
         requestId,
         success: true,
-        data: b.posture ?? { abi: '6.0', host: '1.4.0', enrolled: true, secureBoot: true },
+        data: b.posture ?? { abi: '7.0', host: '1.4.0', enrolled: true, secureBoot: true },
       });
       return;
     }

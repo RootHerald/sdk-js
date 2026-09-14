@@ -26,17 +26,22 @@ npm install @rootherald/contracts
   `key` ask certifies a TPM-resident signing key and returns it as
   `CertifiedKey`, with `KeyCertification` documenting the evidence field and
   `KeyBlob` the opaque handle the caller keeps.
-- **Client ABI enroll blobs** (client-neutral): `EnrollRequestBlob`,
+- **Client ABI enroll blobs** (client-neutral): `EnrollRequestBlob` (a union
+  of `TpmEnrollRequestBlob`, `SecureEnclaveEnrollRequestBlob` and
+  `AppAttestEnrollRequestBlob`, discriminated by `platform`),
   `EnrollActivationChallenge`, `EnrollActivationResponse`. The client verbs are
   Open/Close, PreCheck, EnrollBegin/EnrollComplete, Respond, and
   LoadKey/Sign/CloseKey; the client holds no RootHerald key and opens no socket
   to RootHerald.
 - **Backend relay contract** (server-context, on `/server`): `RelayEnrollRequest`
-  / `RelayEnrollResponse` (+ the `409` `AlreadyEnrolledResponse` and the
-  normalized `RelayEnrollResult` discriminated union), `RelayActivateRequest` /
+  / `RelayEnrollResponse` / `RelayEnrollResult`, `RelayActivateRequest` /
   `RelayActivateResponse`, alongside the challenge/verify pair, for the `rh_sk_`
   server SDK helpers. `RelayEnrollResult` is the one shape every server SDK
-  returns from its `relayEnroll` helper.
+  returns from its `relayEnroll` helper: `{ challenge }`, the 201 body to relay
+  to the device, and nothing the server assigned.
+- **Mobile bridge**: `MobileAppEnrollRequest` / `MobileAppVerifyRequest` (the
+  bodies the bridge forwards to a customer backend), `TenantMobileConfig`, and
+  `buildMobileAttestLink`.
 - **Error classes**: split by context (below).
 
 ## Errors: client-neutral vs server-context
@@ -58,7 +63,7 @@ on the `rh_sk_` path, via `@rootherald/node` or another server SDK):
 - `InvalidSecretKeyError`: the `rh_sk_` secret is missing/malformed/rejected (401).
 - `UnknownPolicyError`: the named policy is unknown/foreign (422).
 - `AdmissionRefusedError`: enrollment refused because the device can never
-  satisfy the challenge's policy; the message names the TPM class (422).
+  satisfy the key's identity policy; the message names the TPM class (422).
 - `QuotaExceededError`: the tenant exceeded its metered verify quota (429).
 - `ChallengeError`: the challenge expired or was already used (409).
 - `InvalidEvidenceError`: the evidence blob was malformed/unappraisable (400).

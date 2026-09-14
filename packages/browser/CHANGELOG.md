@@ -2,6 +2,23 @@
 
 All notable changes to `@rootherald/browser` are documented here.
 
+## 0.1.0-alpha.15
+
+Client ABI 7.0. No identifier the server assigns reaches the page.
+
+### Breaking
+
+- `enroll(relay)` resolves `void`. `EnrollResult` and its `deviceId` are
+  removed: the enroll relay's 201 body carries an `enrollmentId` the host
+  echoes, not a device id, and the device's alias is returned to the backend
+  by `relayActivate`, where it stays. Key your tables on `verdict.device.ueid`.
+- `relay.enroll` returns `{ challenge }` (`RelayEnrollResult` without
+  `deviceId`); the page forwards `challenge` to the host verbatim. The
+  request message's `challenge` for `enroll-complete` is typed as
+  `RelayEnrollResponse`.
+- The activation blob the host emits is `{ enrollmentId, decryptedSecret }`
+  (`{ enrollmentId, signature }` on macOS); `deviceId` is gone from it.
+
 ## 0.1.0-alpha.14
 
 The challenge carries the ask. The page relays the backend's `rhc1.` challenge
