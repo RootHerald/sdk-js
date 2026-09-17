@@ -14,8 +14,8 @@
 import type { EvidenceBlob, KeyBlob } from '@rootherald/contracts';
 import { ACTION_RESPOND } from './constants.js';
 import { HostMissingError } from './errors.js';
-import { classifyFailure } from './host-error.js';
-import { sendRequest, type MessageWindow } from './transport.js';
+import { failureOf } from './host-error.js';
+import { sendRequest, TIMED_OUT, type MessageWindow } from './transport.js';
 
 /**
  * The embedder's bridge to its OWN backend for the verify leg. POST the evidence
@@ -38,7 +38,7 @@ export interface RespondOptions {
    * the ask includes `"key"`; ignored when it does not.
    */
   key?: KeyBlob;
-  /** Overall timeout (ms). Default 60000 — a quote plus a key certification can be slow. */
+  /** Overall timeout (ms). Default 75000 — a quote plus a key certification can be slow. */
   timeoutMs?: number;
   /** Window to broker through. Defaults to global `window`. */
   win?: MessageWindow;
@@ -66,7 +66,9 @@ export interface RespondResult {
   key?: KeyBlob;
 }
 
-const DEFAULT_TIMEOUT_MS = 60_000;
+// Above the extension's own 60 s host timeout, so a slow host is reported by
+// the extension's "timed out" rather than by this timer firing first.
+const DEFAULT_TIMEOUT_MS = 75_000;
 const CHALLENGE_PREFIX = 'rhc1.';
 
 /**
@@ -121,8 +123,8 @@ export async function respond<R>(
     { timeoutMs, win: opts.win },
   );
 
-  if (res === null || res.success !== true) {
-    throw classifyFailure(res, 'responding to the challenge');
+  if (res === TIMED_OUT || res.success !== true) {
+    throw await failureOf(res, 'responding to the challenge', opts.win);
   }
 
   const evidence = res.data?.evidence;

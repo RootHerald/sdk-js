@@ -8,6 +8,7 @@
  * extension's and not the host's.
  */
 
+import { pingExtension } from './detect.js';
 import {
   AbiMismatchError,
   AskUnsupportedError,
@@ -19,6 +20,7 @@ import {
   RootHeraldBrowserError,
   TimeoutError,
 } from './errors.js';
+import { TIMED_OUT, type MessageWindow, type SendResult } from './transport.js';
 
 /** A host error token, split. */
 export interface HostErrorToken {
@@ -46,24 +48,43 @@ export const HOST_CODE_KEY_UNLOADABLE = '14';
 export const HOST_CODE_ABI_MISMATCH = 'abi_mismatch';
 export const HOST_CODE_UNKNOWN_ACTION = 'unknown_action';
 
+/** How long the post-timeout probe waits for the extension's `ping` answer. */
+const PROBE_TIMEOUT_MS = 1500;
+
 /**
- * Map a failed (or absent) response to the error to throw.
+ * The error to throw for a verb's {@link SendResult} that is not a success.
  *
- * - no response: the extension is not there to relay
+ * A timeout on its own does not say whether the extension is absent or the
+ * host is slow (a `key` ask creates, certifies and quotes; enrollment waits
+ * on a UAC prompt). So it is followed by a `ping`, which the extension
+ * answers without touching the host: answered, the verb timed out
+ * ({@link TimeoutError}); silent, there is nothing on the page to relay
+ * ({@link ExtensionMissingError}). A failed response is classified by
+ * {@link classifyFailure}.
+ */
+export async function failureOf(
+  res: SendResult | { success?: boolean; error?: string },
+  doing: string,
+  win?: MessageWindow,
+): Promise<RootHeraldBrowserError> {
+  if (res !== TIMED_OUT) return classifyFailure(res, doing);
+  const seen = await pingExtension({ timeoutMs: PROBE_TIMEOUT_MS, win });
+  return seen === 'present'
+    ? new TimeoutError(`RootHerald request timed out while ${doing}`)
+    : new ExtensionMissingError(`No response from the RootHerald extension while ${doing}`);
+}
+
+/**
+ * Map a failed response to the error to throw.
+ *
  * - a host token: by code
  * - anything else: the extension's own wording for "could not reach the host"
  *   or "timed out"; failing both, a host problem is the most actionable guess
  */
 export function classifyFailure(
-  res: { success?: boolean; error?: string } | null,
+  res: { success?: boolean; error?: string },
   doing: string,
 ): RootHeraldBrowserError {
-  if (res === null) {
-    return new ExtensionMissingError(
-      `No response from the RootHerald extension while ${doing}`,
-    );
-  }
-
   const token = parseHostError(res.error);
   if (token) {
     const text = token.text || undefined;

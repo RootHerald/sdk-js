@@ -162,9 +162,9 @@ Every verb throws typed errors so a UI can route to the right fix:
 
 | Error | Meaning | Fix |
 |---|---|---|
-| `ExtensionMissingError` | The extension never answered. | Install the extension. |
+| `ExtensionMissingError` | The extension never answered, not even a probe. | Install the extension. |
 | `HostMissingError` | Extension present; native host unreachable. | Download and run the host installer. |
-| `TimeoutError` | The operation started but did not finish in time. | Retry. |
+| `TimeoutError` | The extension is present but the operation did not finish in time. | Retry. |
 | `NotEnrolledError` | Host answered: no attestation key yet. | `enroll()`, then retry. |
 | `AskUnsupportedError` | Host answered: it cannot do what the ask names. | Issue a challenge with a smaller ask. |
 | `KeyUnloadableError` | Host answered: the `KeyBlob` will not load into this TPM. | Get a new `key` challenge; replace the blob. |
@@ -177,9 +177,15 @@ extend `RootHeraldBrowserError`. The host prefixes its errors with
 
 ## Timeouts
 
-`respond` 60 s, `sign` 30 s, `getPosture` 30 s, `enroll` 120 s per host leg
+`respond` 75 s, `sign` 45 s, `getPosture` 45 s, `enroll` 135 s per host leg
 (it can block on a UAC prompt), detection probes 1.5 s. All are `timeoutMs`
-options.
+options. Each is above the extension's own per-action host timeout, so a slow
+host is reported by the extension. When a verb's own timer fires anyway, the
+SDK pings the extension: an answer makes it a `TimeoutError`, silence an
+`ExtensionMissingError`.
+
+The SDK only runs in a secure context (`https`, or `http` on localhost), and
+only accepts responses posted by the page's own window at its own origin.
 
 ## PreCheck: cold-start detection
 

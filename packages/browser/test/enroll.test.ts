@@ -79,16 +79,26 @@ describe('enroll (keyless, backend-relayed)', () => {
     );
   });
 
-  it('maps a fully silent enroll-begin to ExtensionMissingError', async () => {
+  it('maps a silent enroll-begin from a present extension to TimeoutError', async () => {
     const win = new FakeWindow({
       extensionPresent: true,
       hostPresent: true,
       enrollBeginHangs: true,
     });
     const relay = makeRelay({ challenge: CHALLENGE });
-    await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(
-      ExtensionMissingError,
-    );
+    await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(TimeoutError);
+    expect(relay.enroll).not.toHaveBeenCalled();
+  });
+
+  it('maps a silent enroll-complete from a present extension to TimeoutError', async () => {
+    const win = new FakeWindow({
+      extensionPresent: true,
+      hostPresent: true,
+      enrollCompleteHangs: true,
+    });
+    const relay = makeRelay({ challenge: CHALLENGE });
+    await expect(enroll(relay, { ...FAST, win })).rejects.toBeInstanceOf(TimeoutError);
+    expect(relay.activate).not.toHaveBeenCalled();
   });
 
   it('maps a host abi_mismatch token to AbiMismatchError', async () => {

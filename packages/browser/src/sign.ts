@@ -10,11 +10,11 @@
 import type { KeyBlob } from '@rootherald/contracts';
 import { ACTION_SIGN } from './constants.js';
 import { HostMissingError } from './errors.js';
-import { classifyFailure } from './host-error.js';
-import { sendRequest, type MessageWindow } from './transport.js';
+import { failureOf } from './host-error.js';
+import { sendRequest, TIMED_OUT, type MessageWindow } from './transport.js';
 
 export interface SignOptions {
-  /** Overall timeout (ms). Default 30000. */
+  /** Overall timeout (ms). Default 45000. */
   timeoutMs?: number;
   /** Window to broker through. Defaults to global `window`. */
   win?: MessageWindow;
@@ -31,7 +31,8 @@ export interface SignResult {
   signature: string;
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+// Above the extension's own 30 s host timeout for `sign`.
+const DEFAULT_TIMEOUT_MS = 45_000;
 
 /**
  * Sign `data` with the key behind `key`.
@@ -69,8 +70,8 @@ export async function sign(
     { timeoutMs, win: opts.win },
   );
 
-  if (res === null || res.success !== true) {
-    throw classifyFailure(res, 'signing');
+  if (res === TIMED_OUT || res.success !== true) {
+    throw await failureOf(res, 'signing', opts.win);
   }
 
   const signature = res.data?.signature;

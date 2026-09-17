@@ -10,7 +10,7 @@ import type {
   EnrollActivationResponse,
 } from '@rootherald/contracts';
 
-type Listener = (event: { data: unknown; source?: unknown }) => void;
+type Listener = (event: { data: unknown; source?: unknown; origin?: string }) => void;
 
 export interface ExtensionBehavior {
   /** If false, the extension never answers a `ping` (simulates no extension). */
@@ -73,7 +73,8 @@ interface SeenRequest {
 
 export class FakeWindow implements MessageWindow {
   location = { origin: 'https://demo.rootherald.test' };
-  private listeners = new Set<Listener>();
+  isSecureContext = true;
+  protected listeners = new Set<Listener>();
   behavior: ExtensionBehavior;
 
   /** Every request the page posted, oldest first, for assertions. */
@@ -215,9 +216,10 @@ export class FakeWindow implements MessageWindow {
     });
   }
 
-  private emit(data: Record<string, unknown>): void {
+  /** What the content script's `window.postMessage` looks like from the page. */
+  protected emit(data: Record<string, unknown>): void {
     for (const l of this.listeners) {
-      l({ data } as unknown as MessageEvent);
+      l({ data, source: this, origin: this.location.origin } as unknown as MessageEvent);
     }
   }
 }

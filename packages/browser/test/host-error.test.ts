@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { classifyFailure, parseHostError } from '../src/host-error.js';
+import { classifyFailure, failureOf, parseHostError } from '../src/host-error.js';
+import { TIMED_OUT } from '../src/transport.js';
+import { FakeWindow } from './fake-window.js';
 import {
   AbiMismatchError,
   AskUnsupportedError,
@@ -40,12 +42,29 @@ describe('parseHostError', () => {
   });
 });
 
-describe('classifyFailure', () => {
+describe('failureOf', () => {
   const doing = 'testing';
 
-  it('maps no response to ExtensionMissingError', () => {
-    expect(classifyFailure(null, doing)).toBeInstanceOf(ExtensionMissingError);
+  it('maps a timeout to TimeoutError when the extension answers a ping', async () => {
+    const win = new FakeWindow({ extensionPresent: true });
+    expect(await failureOf(TIMED_OUT, doing, win)).toBeInstanceOf(TimeoutError);
+    expect(win.requests.map((r) => r.action)).toEqual(['ping']);
   });
+
+  it('maps a timeout to ExtensionMissingError when the ping goes unanswered', async () => {
+    const win = new FakeWindow({ extensionPresent: false });
+    expect(await failureOf(TIMED_OUT, doing, win)).toBeInstanceOf(ExtensionMissingError);
+  });
+
+  it('hands a failed response to classifyFailure without probing', async () => {
+    const win = new FakeWindow({ extensionPresent: true });
+    expect(await failureOf({ success: false, error: 'rh:6:' }, doing, win)).toBeInstanceOf(NotEnrolledError);
+    expect(win.requests).toHaveLength(0);
+  });
+});
+
+describe('classifyFailure', () => {
+  const doing = 'testing';
 
   it.each([
     ['rh:6:not enrolled', NotEnrolledError, '6'],
