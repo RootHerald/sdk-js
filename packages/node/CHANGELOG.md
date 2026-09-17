@@ -2,6 +2,33 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.19
+
+### Added
+
+- `ActivationRefusedError`: a 401 whose `error` is `activation_refused`, the
+  server refusing `relayActivate` for an unknown, spent or foreign
+  `enrollmentId` or a wrong proof. It was `InvalidSecretKeyError`, which it
+  is not: the key was accepted.
+- `RateLimitedError`, with `retryAfterSeconds`: a 429 that carries neither
+  `error: "quota_exceeded"` nor an `X-RootHerald-Quota` header is the
+  request-rate limiter, not the metered quota. `QuotaExceededError` is now
+  only the quota.
+- `relayMobileEnrollment(body)`: relays a bridge `{ nonce, enrollment }`
+  body after checking the envelope nonce equals the one inside the blob.
+- `timeoutMs` client option; requests time out after 30 s by default.
+
+### Changed
+
+- A 422 or 402 whose code no error class covers (`posture_not_bound`,
+  `plan_lapsed`) is a plain `RootHeraldApiError` with `errorCode` preserved,
+  instead of `UnknownPolicyError`.
+- `verify` refuses a response whose `verdict.device.verdict` is not
+  `pass`/`warn`/`fail` or whose timestamps do not parse (`INVALID_RESPONSE`),
+  instead of returning `Invalid Date` or throwing a `TypeError`.
+- `CertifiedKey.authPolicy` is documented as hex, which is what the server
+  sends.
+
 ## 0.1.0-alpha.18
 
 Wire 7.0. Nothing a client sends locates a row: the server resolves the

@@ -69,7 +69,10 @@ export class RootHeraldApiError extends RootHeraldError {
   }
 }
 
-/** 401 — the `rh_sk_` secret key is missing, malformed, or rejected. */
+/**
+ * 401 — the `rh_sk_` secret key is missing, malformed, or rejected. A 401
+ * carrying `activation_refused` is {@link ActivationRefusedError} instead.
+ */
 export class InvalidSecretKeyError extends RootHeraldApiError {
   constructor(message = "invalid secret key", errorCode?: string, cause?: unknown) {
     super(message, "INVALID_SECRET_KEY", 401, errorCode, cause);
@@ -105,7 +108,11 @@ export class InvalidEvidenceError extends RootHeraldApiError {
   }
 }
 
-/** 429 — the `rh_sk_` tenant has exceeded its metered verify quota. */
+/**
+ * 429 `quota_exceeded` (or an `X-RootHerald-Quota` header) — the `rh_sk_`
+ * tenant has exceeded its metered verify quota. A 429 without that signal is
+ * {@link RateLimitedError}.
+ */
 export class QuotaExceededError extends RootHeraldApiError {
   constructor(message = "quota exceeded", errorCode?: string, cause?: unknown) {
     super(message, "QUOTA_EXCEEDED", 429, errorCode, cause);
@@ -128,3 +135,40 @@ export class AdmissionRefusedError extends RootHeraldApiError {
   }
 }
 
+
+/**
+ * 401 `activation_refused` — `POST /api/v1/attest/activate` refused the
+ * enrollment: the `enrollmentId` is unknown, spent or foreign, or the proof
+ * did not match. The secret key was accepted; this is not a credential
+ * problem. Every activation refusal reason produces this one answer.
+ */
+export class ActivationRefusedError extends RootHeraldApiError {
+  constructor(message = "activation refused", errorCode?: string, cause?: unknown) {
+    super(message, "ACTIVATION_REFUSED", 401, errorCode, cause);
+    this.name = "ActivationRefusedError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/**
+ * 429 without a quota signal — the request-rate limiter refused the call.
+ * Retry after `retryAfterSeconds` (from the `Retry-After` header, else the
+ * body, else `undefined`). Distinct from {@link QuotaExceededError}, which is
+ * the metered billing ceiling.
+ */
+export class RateLimitedError extends RootHeraldApiError {
+  /** Seconds to wait before retrying, when the server said. */
+  public readonly retryAfterSeconds?: number;
+
+  constructor(
+    message = "rate limited",
+    errorCode?: string,
+    retryAfterSeconds?: number,
+    cause?: unknown,
+  ) {
+    super(message, "RATE_LIMITED", 429, errorCode, cause);
+    this.name = "RateLimitedError";
+    this.retryAfterSeconds = retryAfterSeconds;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}

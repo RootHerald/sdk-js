@@ -1,11 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { RootHeraldClient } from "../src/client.js";
 import {
+  ActivationRefusedError,
   AdmissionRefusedError,
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
   QuotaExceededError,
+  RateLimitedError,
   RootHeraldApiError,
   UnknownPolicyError,
 } from "@rootherald/contracts/server";
@@ -24,11 +26,11 @@ const CHALLENGE_WIRE = {
 };
 
 /** Builds a fetch mock that returns the given status/json for the next call. */
-function mockFetch(status: number, json: unknown): typeof fetch {
+function mockFetch(status: number, json: unknown, headers: Record<string, string> = {}): typeof fetch {
   return vi.fn(async () =>
     new Response(JSON.stringify(json), {
       status,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...headers },
     }),
   ) as unknown as typeof fetch;
 }
@@ -288,6 +290,45 @@ describe("verify", () => {
     expect(out.expiresAt.getTime()).toBe(epochMs);
   });
 
+  it("refuses a verdict whose device.verdict is null with a typed protocol error", async () => {
+    const wire = JSON.parse(JSON.stringify(sampleVerdict()));
+    wire.device.verdict = null;
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: wire }) });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect((err as RootHeraldApiError).code).toBe("INVALID_RESPONSE");
+    expect((err as Error).message).toContain("verdict.device.verdict");
+  });
+
+  it("refuses a verdict token outside pass/warn/fail", async () => {
+    const wire = JSON.parse(JSON.stringify(sampleVerdict()));
+    wire.device.verdict = "allow";
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: wire }) });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect((err as RootHeraldApiError).code).toBe("INVALID_RESPONSE");
+  });
+
+  it("refuses a verdict without a device object", async () => {
+    const { device: _omitted, ...wire } = JSON.parse(JSON.stringify(sampleVerdict()));
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: wire }) });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect((err as RootHeraldApiError).code).toBe("INVALID_RESPONSE");
+  });
+
+  it.each([
+    ["issuedAt garbage", { authTime: "garbage" }, "verdict.authTime"],
+    ["expiresAt missing", { expiresAt: undefined }, "verdict.expiresAt"],
+    ["attestedAt object", { device: { ...JSON.parse(JSON.stringify(sampleVerdict())).device, attestedAt: {} } }, "verdict.device.attestedAt"],
+  ])("refuses an unparseable timestamp (%s) instead of returning Invalid Date", async (_name, patch, field) => {
+    const wire = { ...JSON.parse(JSON.stringify(sampleVerdict())), ...patch };
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: wire }) });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect((err as RootHeraldApiError).code).toBe("INVALID_RESPONSE");
+    expect((err as Error).message).toContain(field);
+  });
+
   it("leaves cohort fields absent when the server omits them", async () => {
     const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
@@ -411,11 +452,13 @@ describe("verify", () => {
 describe("error mapping", () => {
   const cases: Array<[number, string, new (...args: never[]) => RootHeraldApiError]> = [
     [401, "invalid_secret_key", InvalidSecretKeyError],
+    [401, "activation_refused", ActivationRefusedError],
     [422, "unknown_policy", UnknownPolicyError],
     [422, "admission_refused", AdmissionRefusedError],
     [409, "challenge_expired_or_used", ChallengeError],
     [400, "invalid_evidence", InvalidEvidenceError],
     [429, "quota_exceeded", QuotaExceededError],
+    [429, "rate_limited", RateLimitedError],
   ];
 
   for (const [status, errorCode, ErrClass] of cases) {
@@ -439,6 +482,83 @@ describe("error mapping", () => {
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UnknownPolicyError);
+  });
+
+  it("keeps a 422 posture_not_bound generic, with the code preserved", async () => {
+    const fetchMock = mockFetch(422, { error: "posture_not_bound", message: "no posture policy" });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.issueChallenge({ ask: ["posture"] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect(err).not.toBeInstanceOf(UnknownPolicyError);
+    expect((err as RootHeraldApiError).status).toBe(422);
+    expect((err as RootHeraldApiError).errorCode).toBe("posture_not_bound");
+    expect((err as Error).message).toBe("no posture policy");
+  });
+
+  it("keeps a 402 plan_lapsed generic, with the code preserved", async () => {
+    const fetchMock = mockFetch(402, { error: "plan_lapsed", message: "plan lapsed" });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.issueChallenge({ ask: ["posture"] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect((err as RootHeraldApiError).status).toBe(402);
+    expect((err as RootHeraldApiError).errorCode).toBe("plan_lapsed");
+  });
+
+  it("maps a 401 activation_refused to ActivationRefusedError, not InvalidSecretKeyError", async () => {
+    const fetchMock = mockFetch(401, {
+      error: "activation_refused",
+      message: "Invalid credential activation response",
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ActivationRefusedError);
+    expect(err).not.toBeInstanceOf(InvalidSecretKeyError);
+    expect((err as RootHeraldApiError).errorCode).toBe("activation_refused");
+    expect((err as Error).message).toBe("Invalid credential activation response");
+  });
+
+  it("maps a bare 401 (no body) to InvalidSecretKeyError", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 401 })) as unknown as typeof fetch;
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidSecretKeyError);
+  });
+
+  it("maps a limiter 429 to RateLimitedError with retryAfterSeconds from Retry-After", async () => {
+    const fetchMock = mockFetch(
+      429,
+      { error: "rate_limited", message: "Too many requests", retryAfterSeconds: 60 },
+      { "Retry-After": "17" },
+    );
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err).not.toBeInstanceOf(QuotaExceededError);
+    expect((err as RateLimitedError).retryAfterSeconds).toBe(17);
+    expect((err as RateLimitedError).errorCode).toBe("rate_limited");
+  });
+
+  it("falls back to the body's retryAfterSeconds when there is no Retry-After header", async () => {
+    const fetchMock = mockFetch(429, { error: "rate_limited", retryAfterSeconds: 60 });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect((err as RateLimitedError).retryAfterSeconds).toBe(60);
+  });
+
+  it("maps an empty 429 to RateLimitedError with no retry hint", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 429 })) as unknown as typeof fetch;
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect((err as RateLimitedError).retryAfterSeconds).toBeUndefined();
+  });
+
+  it("maps a 429 carrying X-RootHerald-Quota to QuotaExceededError whatever the body says", async () => {
+    const fetchMock = mockFetch(429, {}, { "X-RootHerald-Quota": "device-limit-exceeded" });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QuotaExceededError);
   });
 
   it("carries the server's detail as the message on admission_refused", async () => {
@@ -653,11 +773,65 @@ describe("relayActivate", () => {
     expect(calls(fetchMock).length).toBe(0);
   });
 
-  it("maps a 401 from activate to InvalidSecretKeyError", async () => {
-    const fetchMock = mockFetch(401, { error: "Invalid credential activation response" });
+  it("maps an activation refusal to ActivationRefusedError, not InvalidSecretKeyError", async () => {
+    const fetchMock = mockFetch(401, {
+      error: "activation_refused",
+      message: "Invalid credential activation response",
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.relayActivate(activateBlob).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ActivationRefusedError);
+    expect(err).not.toBeInstanceOf(InvalidSecretKeyError);
+  });
+
+  it("maps a 401 invalid_secret_key from activate to InvalidSecretKeyError", async () => {
+    const fetchMock = mockFetch(401, { error: "invalid_secret_key" });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     const err = await rh.relayActivate(activateBlob).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InvalidSecretKeyError);
+  });
+});
+
+describe("relayMobileEnrollment (mobile bridge)", () => {
+  const enrollment = {
+    platform: "ios" as const,
+    iosKeyId: "b64key",
+    iosAttestationObject: "b64cbor",
+    nonce: NONCE,
+  };
+
+  it("relays the enrollment when the envelope nonce matches the blob's", async () => {
+    const fetchMock = mockFetch(201, {});
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const out = await rh.relayMobileEnrollment({ nonce: NONCE, enrollment });
+    expect(out).toEqual({ challenge: {} });
+    const [url, init] = calls(fetchMock)[0];
+    expect(url).toBe(`${BASE}/api/v1/attest/enroll`);
+    expect(JSON.parse(init.body)).toEqual(enrollment);
+  });
+
+  it("refuses an envelope nonce that differs from the blob's before any fetch", async () => {
+    const fetchMock = mockFetch(201, {});
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh
+      .relayMobileEnrollment({ nonce: "some-other-nonce", enrollment })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldError);
+    expect((err as RootHeraldError).code).toBe("NONCE_MISMATCH");
+    expect(calls(fetchMock).length).toBe(0);
+  });
+
+  it("refuses a body missing nonce", async () => {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(201, {}) });
+    const err = await rh.relayMobileEnrollment({ nonce: "", enrollment }).catch((e: unknown) => e);
+    expect((err as RootHeraldError).code).toBe("MISSING_NONCE");
+  });
+
+  it("refuses a non-iOS enrollment", async () => {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(201, {}) });
+    const bad = { nonce: NONCE, enrollment: { platform: "windows", ekPublicKey: "e", akPublicArea: "a" } } as never;
+    const err = await rh.relayMobileEnrollment(bad).catch((e: unknown) => e);
+    expect((err as RootHeraldError).code).toBe("INVALID_ENROLL_BLOB");
   });
 });
 

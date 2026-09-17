@@ -61,10 +61,15 @@ customer's backend**. A browser bundle has no secret and never calls that API.
 on the `rh_sk_` path, via `@rootherald/node` or another server SDK):
 
 - `InvalidSecretKeyError`: the `rh_sk_` secret is missing/malformed/rejected (401).
+- `ActivationRefusedError`: activation refused for an unknown, spent or
+  foreign `enrollmentId` or a wrong proof (401 `activation_refused`).
 - `UnknownPolicyError`: the named policy is unknown/foreign (422).
 - `AdmissionRefusedError`: enrollment refused because the device can never
   satisfy the key's identity policy; the message names the TPM class (422).
-- `QuotaExceededError`: the tenant exceeded its metered verify quota (429).
+- `QuotaExceededError`: the tenant exceeded its metered verify quota (429
+  `quota_exceeded` or `X-RootHerald-Quota`).
+- `RateLimitedError`: the request-rate limiter refused the call; carries
+  `retryAfterSeconds` (any other 429).
 - `ChallengeError`: the challenge expired or was already used (409).
 - `InvalidEvidenceError`: the evidence blob was malformed/unappraisable (400).
 
