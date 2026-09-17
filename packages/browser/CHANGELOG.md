@@ -2,7 +2,7 @@
 
 All notable changes to `@rootherald/browser` are documented here.
 
-## Unreleased
+## 0.1.0-alpha.19
 
 ### Changed
 
