@@ -2,6 +2,21 @@
 
 All notable changes to `@rootherald/browser` are documented here.
 
+## 0.1.0-alpha.19
+
+### Changed
+
+- A verb whose own timer fires now pings the extension before classifying:
+  an answer is a `TimeoutError`, silence an `ExtensionMissingError`. A slow
+  TPM or an open UAC prompt is no longer reported as a missing extension.
+- Default timeouts sit above the extension's per-action host timeouts:
+  `respond` 75 s, `sign` 45 s, `getPosture` 45 s, `enroll` 135 s per host leg.
+- The transport only accepts responses posted by the page's own window at
+  its own origin, refuses to run outside a secure context, and requires
+  `crypto.randomUUID` for request ids.
+- `DevicePosture` carries no device identifier; the host's `status` and
+  `posture` answers are readiness flags only.
+
 ## 0.1.0-alpha.15
 
 Client ABI 7.0. No identifier the server assigns reaches the page.

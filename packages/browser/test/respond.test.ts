@@ -76,9 +76,13 @@ describe('respond', () => {
     await expect(respond(CHALLENGE, { ...FAST, win })).rejects.toBeInstanceOf(HostMissingError);
   });
 
-  it('maps a fully silent respond to ExtensionMissingError', async () => {
+  it('maps a silent respond from a present extension to TimeoutError, not ExtensionMissingError', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true, respondHangs: true });
-    await expect(respond(CHALLENGE, { ...FAST, win })).rejects.toBeInstanceOf(ExtensionMissingError);
+    const err = await respond(CHALLENGE, { ...FAST, win }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TimeoutError);
+    expect(err).not.toBeInstanceOf(ExtensionMissingError);
+    // The timeout was disambiguated by a ping the extension answered.
+    expect(win.requests.map((r) => r.action)).toEqual(['respond', 'ping']);
   });
 
   it('classifies the extension\'s own "timed out" as TimeoutError', async () => {

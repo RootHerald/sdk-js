@@ -10,20 +10,24 @@
 
 import { ACTION_POSTURE } from './constants.js';
 import type { RootHeraldResponseData } from './constants.js';
-import { classifyFailure } from './host-error.js';
-import { sendRequest, type MessageWindow } from './transport.js';
+import { failureOf } from './host-error.js';
+import { sendRequest, TIMED_OUT, type MessageWindow } from './transport.js';
 
 export interface PostureOptions {
-  /** Overall timeout (ms). Default 30000. */
+  /** Overall timeout (ms). Default 45000. */
   timeoutMs?: number;
   /** Window to broker through. Defaults to global `window`. */
   win?: MessageWindow;
 }
 
-/** Host-defined posture signals; `abi` and `host` are the two this SDK names. */
+/**
+ * Host-defined posture signals; `abi` and `host` are the two this SDK names.
+ * Readiness only: nothing in it identifies the device to the page.
+ */
 export type DevicePosture = RootHeraldResponseData;
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+// Above the extension's own 30 s host timeout for `posture`.
+const DEFAULT_TIMEOUT_MS = 45_000;
 
 /**
  * Read the host's local posture signals.
@@ -38,8 +42,8 @@ export async function getPosture(opts: PostureOptions = {}): Promise<DevicePostu
     { action: ACTION_POSTURE },
     { timeoutMs, win: opts.win },
   );
-  if (res === null || res.success !== true) {
-    throw classifyFailure(res, 'reading posture');
+  if (res === TIMED_OUT || res.success !== true) {
+    throw await failureOf(res, 'reading posture', opts.win);
   }
   return res.data ?? {};
 }

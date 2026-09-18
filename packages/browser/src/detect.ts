@@ -4,7 +4,7 @@
  */
 
 import { ACTION_PING, ACTION_STATUS } from './constants.js';
-import { sendRequest, type MessageWindow } from './transport.js';
+import { sendRequest, TIMED_OUT, type MessageWindow } from './transport.js';
 
 export type OsName = 'windows' | 'macos' | 'linux' | 'unknown';
 export type BrowserName = 'chrome' | 'edge' | 'firefox' | 'safari' | 'unknown';
@@ -106,7 +106,7 @@ export async function pingExtension(
     { action: ACTION_PING },
     { timeoutMs: opts.timeoutMs, win: opts.win },
   );
-  if (res === null) return 'missing'; // timeout => not installed
+  if (res === TIMED_OUT) return 'missing'; // no answer => not installed
   if (res.success === true && res.data?.extensionInstalled === true)
     return 'present';
   return 'missing';
@@ -124,7 +124,7 @@ export async function probeHost(opts: ProbeOptions): Promise<HostState> {
     { timeoutMs: opts.timeoutMs, win: opts.win },
   );
   // Timeout or extension-level failure => the host did not answer.
-  if (res === null) return 'missing';
+  if (res === TIMED_OUT) return 'missing';
   if (res.success === true) return 'present';
   return 'missing';
 }

@@ -55,9 +55,9 @@ describe('sign', () => {
     await expect(sign(KEY, 'data', { ...FAST, win })).rejects.toBeInstanceOf(ExtensionMissingError);
   });
 
-  it('maps a fully silent sign to ExtensionMissingError', async () => {
+  it('maps a silent sign from a present extension to TimeoutError', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true, signHangs: true });
-    await expect(sign(KEY, 'data', { ...FAST, win })).rejects.toBeInstanceOf(ExtensionMissingError);
+    await expect(sign(KEY, 'data', { ...FAST, win })).rejects.toBeInstanceOf(TimeoutError);
   });
 
   it('throws HostMissingError when the host is disconnected', async () => {

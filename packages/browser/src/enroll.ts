@@ -36,8 +36,8 @@ import type {
 } from '@rootherald/contracts/server';
 import { ACTION_ENROLL_BEGIN, ACTION_ENROLL_COMPLETE } from './constants.js';
 import { HostMissingError } from './errors.js';
-import { classifyFailure } from './host-error.js';
-import { sendRequest, type MessageWindow } from './transport.js';
+import { failureOf } from './host-error.js';
+import { sendRequest, TIMED_OUT, type MessageWindow } from './transport.js';
 
 /**
  * The embedder's bridge to its OWN backend. These callbacks are how the keyless
@@ -65,15 +65,16 @@ export interface EnrollRelay {
 }
 
 export interface EnrollOptions {
-  /** Overall timeout (ms) per native-host leg. Default 120000 — enroll includes a UAC prompt. */
+  /** Overall timeout (ms) per native-host leg. Default 135000 — enroll includes a UAC prompt. */
   timeoutMs?: number;
   /** Window to broker through. Defaults to global `window`. */
   win?: MessageWindow;
 }
 
 // Enrollment can block on a user-facing UAC prompt, so each native-host leg gets
-// a generous default well above the respond timeout.
-const DEFAULT_TIMEOUT_MS = 120_000;
+// a generous default: above the extension's own 125 s host timeout, so a slow
+// leg is reported by the extension rather than by this timer firing first.
+const DEFAULT_TIMEOUT_MS = 135_000;
 
 /**
  * Enroll this device with RootHerald via the embedder-relayed handshake.
@@ -111,8 +112,8 @@ export async function enroll(
     { action: ACTION_ENROLL_BEGIN },
     { timeoutMs, win },
   );
-  if (beginRes === null || beginRes.success !== true) {
-    throw classifyFailure(beginRes, 'beginning enrollment');
+  if (beginRes === TIMED_OUT || beginRes.success !== true) {
+    throw await failureOf(beginRes, 'beginning enrollment', win);
   }
   const enrollRequestBlob = beginRes.data?.enrollRequestBlob as
     | EnrollRequestBlob
@@ -131,8 +132,8 @@ export async function enroll(
     { action: ACTION_ENROLL_COMPLETE, challenge: relayResult.challenge },
     { timeoutMs, win },
   );
-  if (completeRes === null || completeRes.success !== true) {
-    throw classifyFailure(completeRes, 'completing enrollment');
+  if (completeRes === TIMED_OUT || completeRes.success !== true) {
+    throw await failureOf(completeRes, 'completing enrollment', win);
   }
   const activationBlob = completeRes.data?.activationBlob as
     | EnrollActivationResponse
