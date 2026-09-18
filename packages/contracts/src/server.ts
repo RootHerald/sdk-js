@@ -16,11 +16,13 @@
  */
 
 export {
+  ActivationRefusedError,
   AdmissionRefusedError,
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
   QuotaExceededError,
+  RateLimitedError,
   RootHeraldApiError,
   UnknownPolicyError,
 } from "./errors.js";

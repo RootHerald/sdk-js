@@ -173,16 +173,33 @@ raise a typed `RootHeraldApiError`:
 
 | Status | `errorCode`          | Error class              |
 | ------ | -------------------- | ------------------------ |
-| 401    |                      | `InvalidSecretKeyError`  |
+| 401    | `activation_refused` | `ActivationRefusedError` |
+| 401    | anything else        | `InvalidSecretKeyError`  |
 | 400    |                      | `InvalidEvidenceError`   |
 | 409    |                      | `ChallengeError`         |
 | 422    | `unknown_policy`     | `UnknownPolicyError`     |
 | 422    | `admission_refused`  | `AdmissionRefusedError`  |
-| 429    |                      | `QuotaExceededError`     |
+| 429    | `quota_exceeded`, or an `X-RootHerald-Quota` header | `QuotaExceededError` |
+| 429    | anything else        | `RateLimitedError`       |
 
 All extend `RootHeraldApiError` (which carries `.status` and the server's
 `.errorCode`), which extends `RootHeraldError`. `AdmissionRefusedError.message`
 carries the server's detail, which names the TPM class that was refused.
+`ActivationRefusedError` is `relayActivate` being refused for an unknown,
+spent or foreign `enrollmentId` or a wrong proof; the secret key was accepted.
+`RateLimitedError.retryAfterSeconds` is the server's `Retry-After` (else the
+body's `retryAfterSeconds`, else `undefined`); `QuotaExceededError` is the
+metered billing ceiling. Any other status, and a 422 or 402 carrying a code
+no class covers (`posture_not_bound`, `plan_lapsed`), is a plain
+`RootHeraldApiError` with `.errorCode` preserved.
+
+A `verify` response whose `verdict.device.verdict` is not `pass`/`warn`/`fail`,
+or whose timestamps do not parse, is refused with a `RootHeraldApiError` of
+code `INVALID_RESPONSE` rather than returned half-parsed.
+
+Every request times out after 30 s by default (`timeoutMs` on the client
+options); a timeout is a `RootHeraldError` of code `NETWORK_ERROR`. The
+default is the same in every RootHerald server SDK.
 
 ## The verdict shape
 
@@ -223,8 +240,12 @@ Timestamps arrive as ISO-8601 strings and are parsed to `Date` objects
 to your registered `appVerifyUrl`: `{ nonce, evidence: { iosAttestation: {
 assertion, keyId } } }`. It validates that shape and brokers `verify` under
 the `nonce` with your `rh_sk_`. The enroll leg arrives at your registered
-enroll URL as `{ nonce, enrollment }` (`MobileAppEnrollRequest`); hand
-`enrollment` to `relayEnroll`. `buildMobileAttestLink({ bridgeBaseUrl,
+enroll URL as `{ nonce, enrollment }` (`MobileAppEnrollRequest`);
+`rh.relayMobileEnrollment(body)` checks that the envelope `nonce` equals the
+`nonce` inside `enrollment` and relays it with `relayEnroll`. These two
+helpers exist in the Node and Go SDKs only; the other server SDKs relay the
+bodies with their `verify` / `relayEnroll` and the backend compares the two
+nonces itself. `buildMobileAttestLink({ bridgeBaseUrl,
 challenge })` builds the link a page opens to hand a challenge to the app;
 pass it the `challenge` string from `issueChallenge` verbatim, and the app
 signs over it. The bridge reopens your `returnUrl` with `?nonce=` so the page

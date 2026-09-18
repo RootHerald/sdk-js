@@ -37,11 +37,13 @@ export {
   TokenExpiredError,
 } from "@rootherald/contracts";
 export {
+  ActivationRefusedError,
   AdmissionRefusedError,
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
   QuotaExceededError,
+  RateLimitedError,
   RootHeraldApiError,
   UnknownPolicyError,
 } from "@rootherald/contracts/server";

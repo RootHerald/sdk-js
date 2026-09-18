@@ -17,18 +17,22 @@ import type {
   ChallengeRequest,
   ChallengeResponse,
   EvidenceBlob,
+  MobileAppEnrollRequest,
   MobileAppVerifyRequest,
   RequestedDisclosureClass,
+  Verdict,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "@rootherald/contracts";
 import { RootHeraldError } from "@rootherald/contracts";
 import {
+  ActivationRefusedError,
   AdmissionRefusedError,
   ChallengeError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
   QuotaExceededError,
+  RateLimitedError,
   RootHeraldApiError,
   UnknownPolicyError,
 } from "@rootherald/contracts/server";
@@ -45,6 +49,12 @@ const DEFAULT_BASE_URL = "https://rootherald.io";
 
 /** RootHerald API keys are `rh_sk_`-prefixed secret keys, used server-side as a Bearer token. */
 const SECRET_KEY_PREFIX = "rh_sk_";
+
+/** Default per-request HTTP timeout, the same in every RootHerald server SDK. */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/** The verdict values the server emits at `verdict.device.verdict`. */
+const VERDICTS: readonly Verdict[] = ["pass", "warn", "fail"];
 
 /**
  * Reject a base URL that would put the `rh_sk_` secret on the wire in the clear.
@@ -97,6 +107,11 @@ export interface RootHeraldClientOptions {
    * `fetch` (Node 18+).
    */
   fetch?: typeof fetch;
+  /**
+   * Per-request HTTP timeout in milliseconds. Default: 30 000. A request that
+   * exceeds it fails with a `NETWORK_ERROR`.
+   */
+  timeoutMs?: number;
 }
 
 /** Options for {@link RootHeraldClient.issueChallenge}. */
@@ -179,6 +194,7 @@ export class RootHeraldClient {
   private readonly secretKey: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly timeoutMs: number;
 
   constructor(options: RootHeraldClientOptions) {
     const key = options?.secretKey;
@@ -196,6 +212,7 @@ export class RootHeraldClient {
     }
     this.secretKey = key;
     this.baseUrl = requireSecureBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     const f = options.fetch ?? globalThis.fetch;
     if (typeof f !== "function") {
@@ -274,9 +291,17 @@ export class RootHeraldClient {
       "/api/v1/attest/verify",
       body,
     );
-    if (!data || typeof data !== "object" || !("verdict" in data)) {
+    if (!data || typeof data !== "object" || !isObject(data.verdict)) {
       throw new RootHeraldApiError(
         "verify response missing `verdict`",
+        "INVALID_RESPONSE",
+        200,
+      );
+    }
+    const deviceVerdict = isObject(data.verdict.device) ? data.verdict.device.verdict : undefined;
+    if (!VERDICTS.includes(deviceVerdict as Verdict)) {
+      throw new RootHeraldApiError(
+        `verify response \`verdict.device.verdict\` is not one of ${VERDICTS.join("/")} (got ${JSON.stringify(deviceVerdict)})`,
         "INVALID_RESPONSE",
         200,
       );
@@ -338,6 +363,36 @@ export class RootHeraldClient {
       );
     }
     return this.verify(body.evidence, { nonce: body.nonce });
+  }
+
+  /**
+   * Handle the POST the RootHerald bridge makes to your registered mobile
+   * enroll URL. The body is `{ nonce, enrollment }`, where `enrollment` is the
+   * app's iOS enroll blob and carries the same nonce inside it; the two must
+   * agree, or the body was not assembled by the bridge from one challenge.
+   * Relays `enrollment` with {@link relayEnroll}; an iOS enrollment is one leg,
+   * so the returned `challenge` is `{}` and there is nothing to activate.
+   */
+  async relayMobileEnrollment(body: MobileAppEnrollRequest): Promise<RelayEnrollResult> {
+    if (!body || typeof body.nonce !== "string" || !body.nonce) {
+      throw new RootHeraldError(
+        "relayMobileEnrollment() requires a body with `nonce`",
+        "MISSING_NONCE",
+      );
+    }
+    if (!isWellFormedEnrollBlob(body.enrollment) || body.enrollment.platform !== "ios") {
+      throw new RootHeraldError(
+        "relayMobileEnrollment() requires `enrollment` to be an iOS enroll blob with `iosKeyId`, `iosAttestationObject` and `nonce`",
+        "INVALID_ENROLL_BLOB",
+      );
+    }
+    if (body.enrollment.nonce !== body.nonce) {
+      throw new RootHeraldError(
+        "relayMobileEnrollment() body `nonce` does not match `enrollment.nonce`",
+        "NONCE_MISMATCH",
+      );
+    }
+    return this.relayEnroll(body.enrollment);
   }
 
   /**
@@ -447,6 +502,7 @@ export class RootHeraldClient {
           Accept: "application/json",
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -457,6 +513,10 @@ export class RootHeraldClient {
     }
     return parseJson<T>(res);
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /** The per-platform enroll body has the fields the server binds for that platform. */
@@ -489,23 +549,32 @@ async function parseJson<T>(res: Response): Promise<T> {
 }
 
 /**
- * Coerce a server-supplied timestamp into a `Date`.
+ * Parse a server-supplied timestamp into a valid `Date`, or `undefined`.
  *
  * The RootHerald API serializes .NET `DateTimeOffset` values as ISO-8601
- * STRINGS (e.g. `"2026-06-28T12:34:56Z"`), not as JS `Date` objects or epoch
- * numbers. A naive `value as Date` cast leaves a string at runtime, so any
- * consumer calling `.getTime()` on `verdict.expiresAt` throws
- * `getTime is not a function`. This accepts a string (ISO-8601), a number
- * (epoch milliseconds), or an existing `Date`, and always returns a `Date`.
+ * STRINGS (e.g. `"2026-06-28T12:34:56Z"`); an epoch-millisecond number or an
+ * existing `Date` is accepted too. Anything else, and anything that parses to
+ * an Invalid Date, is `undefined` so the caller can refuse it.
  */
-function toDate(value: unknown): Date {
-  if (value instanceof Date) return value;
-  if (typeof value === "string" || typeof value === "number") {
-    return new Date(value);
+function toDate(value: unknown): Date | undefined {
+  let date: Date;
+  if (value instanceof Date) date = value;
+  else if (typeof value === "string" || typeof value === "number") date = new Date(value);
+  else return undefined;
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/** As {@link toDate}, refusing the response when the field is not a timestamp. */
+function requireDate(value: unknown, field: string): Date {
+  const date = toDate(value);
+  if (!date) {
+    throw new RootHeraldApiError(
+      `verify response \`${field}\` is not a timestamp (got ${JSON.stringify(value)})`,
+      "INVALID_RESPONSE",
+      200,
+    );
   }
-  // Undefined/null/object: produce an Invalid Date rather than throwing, so a
-  // malformed timestamp degrades gracefully instead of crashing `verify()`.
-  return new Date(NaN);
+  return date;
 }
 
 /**
@@ -514,11 +583,12 @@ function toDate(value: unknown): Date {
  * promises `Date` objects, so we convert in place.
  */
 function normalizeVerdictDates(result: AttestResult): AttestResult {
-  result.authTime = toDate(result.authTime as unknown);
-  result.expiresAt = toDate(result.expiresAt as unknown);
-  if (result.device) {
-    result.device.attestedAt = toDate(result.device.attestedAt as unknown);
-  }
+  result.authTime = requireDate(result.authTime as unknown, "verdict.authTime");
+  result.expiresAt = requireDate(result.expiresAt as unknown, "verdict.expiresAt");
+  result.device.attestedAt = requireDate(
+    result.device.attestedAt as unknown,
+    "verdict.device.attestedAt",
+  );
   return result;
 }
 
@@ -531,6 +601,7 @@ function toCertifiedKey(value: unknown): AttestResultKey | undefined {
   if (!value || typeof value !== "object") return undefined;
   const k = value as Record<string, unknown>;
   const jwk = k.jwk as Record<string, unknown> | undefined;
+  const certifiedAt = toDate(k.certifiedAt);
   if (
     typeof k.keyId !== "string" ||
     !jwk ||
@@ -539,7 +610,8 @@ function toCertifiedKey(value: unknown): AttestResultKey | undefined {
     jwk.crv !== "P-256" ||
     typeof jwk.x !== "string" ||
     typeof jwk.y !== "string" ||
-    k.purpose !== "sign"
+    k.purpose !== "sign" ||
+    !certifiedAt
   ) {
     return undefined;
   }
@@ -547,14 +619,20 @@ function toCertifiedKey(value: unknown): AttestResultKey | undefined {
     keyId: k.keyId,
     jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
     purpose: "sign",
-    certifiedAt: toDate(k.certifiedAt),
+    certifiedAt,
   };
   if (typeof k.authPolicy === "string") key.authPolicy = k.authPolicy;
   return key;
 }
 
+interface ErrorBody {
+  errorCode?: string;
+  message?: string;
+  retryAfterSeconds?: number;
+}
+
 /** Parses an error response body, unknown-safely, and returns its `error`/`message`. */
-async function readErrorBody(res: Response): Promise<{ errorCode?: string; message?: string }> {
+async function readErrorBody(res: Response): Promise<ErrorBody> {
   try {
     const parsed: unknown = await res.json();
     if (parsed && typeof parsed === "object") {
@@ -568,7 +646,9 @@ async function readErrorBody(res: Response): Promise<{ errorCode?: string; messa
             : typeof rec.error_description === "string"
               ? rec.error_description
               : undefined;
-      return { errorCode, message };
+      const retryAfterSeconds =
+        typeof rec.retryAfterSeconds === "number" ? rec.retryAfterSeconds : undefined;
+      return { errorCode, message, retryAfterSeconds };
     }
   } catch {
     // Non-JSON or empty body — fall through to status-based mapping.
@@ -576,34 +656,53 @@ async function readErrorBody(res: Response): Promise<{ errorCode?: string; messa
   return {};
 }
 
-/** Maps a non-2xx response to the matching typed error. */
+/** The `Retry-After` header as whole seconds, when present and numeric. */
+function retryAfterHeader(res: Response): number | undefined {
+  const raw = res.headers.get("Retry-After");
+  if (raw === null) return undefined;
+  const seconds = Number.parseInt(raw, 10);
+  return Number.isFinite(seconds) ? seconds : undefined;
+}
+
+/**
+ * Maps a non-2xx response to the matching typed error. Where one status
+ * carries two refusals, the body's `error` code (or a header) tells them
+ * apart; a code no class covers stays a generic {@link RootHeraldApiError}
+ * with the code preserved.
+ */
 async function toApiError(res: Response): Promise<RootHeraldError> {
-  const { errorCode, message } = await readErrorBody(res);
+  const { errorCode, message, retryAfterSeconds } = await readErrorBody(res);
   switch (res.status) {
     case 401:
-      return new InvalidSecretKeyError(message, errorCode);
+      return errorCode === "activation_refused"
+        ? new ActivationRefusedError(message, errorCode)
+        : new InvalidSecretKeyError(message, errorCode);
     case 422:
-      // Two refusals share the status; the body's `error` tells them apart.
-      // An unknown policy is the default because it is what a 422 meant
-      // before admission refusals existed.
       switch (errorCode) {
         case "admission_refused":
           return new AdmissionRefusedError(message, errorCode);
-        default:
+        case "unknown_policy":
+        case undefined:
           return new UnknownPolicyError(message, errorCode);
+        default:
+          break;
       }
+      break;
     case 409:
       return new ChallengeError(message, errorCode);
     case 400:
       return new InvalidEvidenceError(message, errorCode);
     case 429:
-      return new QuotaExceededError(message, errorCode);
+      return errorCode === "quota_exceeded" || res.headers.has("X-RootHerald-Quota")
+        ? new QuotaExceededError(message, errorCode)
+        : new RateLimitedError(message, errorCode, retryAfterHeader(res) ?? retryAfterSeconds);
     default:
-      return new RootHeraldApiError(
-        message ?? `RootHerald API error (${res.status})`,
-        "API_ERROR",
-        res.status,
-        errorCode,
-      );
+      break;
   }
+  return new RootHeraldApiError(
+    message ?? `RootHerald API error (${res.status})`,
+    "API_ERROR",
+    res.status,
+    errorCode,
+  );
 }

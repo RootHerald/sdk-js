@@ -164,7 +164,7 @@ export interface CertifiedKey {
   /** What the key is certified for; echoes the challenge's `keyPurpose`. */
   purpose: "sign";
   /**
-   * base64 `authPolicy` digest from the key's public area, when the key was
+   * Hex `authPolicy` digest from the key's public area, when the key was
    * created with one. Absent for a key with no policy.
    */
   authPolicy?: string;
