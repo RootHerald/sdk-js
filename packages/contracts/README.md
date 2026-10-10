@@ -81,13 +81,15 @@ on the `rh_sk_` path, via `@rootherald/node` or another server SDK):
   `retryAfterSeconds` (any other 429).
 - `ChallengeError`: the challenge expired or was already used (409).
 - `InvalidEvidenceError`: the relayed blob was malformed/unappraisable (400,
-  including `wire_version_unsupported` and `invalid_enroll_shape`).
-- `InvalidAskError`: the challenge named an ask the server does not know
-  (400 `invalid_ask`).
+  including `wire_version_unsupported`, `invalid_enroll_shape` and
+  `invalid_certification`).
+- `InvalidAskError`: the challenge named an ask or purpose the server does
+  not know (400 `invalid_ask`, `invalid_purpose`).
 
-A 409 `key_rotation_conflict`, a 422 `expected_unknown` or
-`key_disclosure_too_low`, and any other code no class covers, is a plain
-`RootHeraldApiError` with `errorCode` preserved.
+A 409 `key_rotation_conflict`, a 422 `expected_unknown`,
+`key_disclosure_too_low`, `purpose_unsupported` or `certification_rejected`,
+and any other code no class covers, is a plain `RootHeraldApiError` with
+`errorCode` preserved.
 
 Import the server-context errors from the dedicated subpath:
 

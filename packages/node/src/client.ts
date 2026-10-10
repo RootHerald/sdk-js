@@ -896,7 +896,7 @@ async function toApiError(res: Response): Promise<RootHeraldError> {
       if (errorCode === "key_rotation_conflict") break;
       return new ChallengeError(message, errorCode);
     case 400:
-      return errorCode === "invalid_ask"
+      return errorCode === "invalid_ask" || errorCode === "invalid_purpose"
         ? new InvalidAskError(message, errorCode)
         : new InvalidEvidenceError(message, errorCode);
     case 429:

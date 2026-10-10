@@ -729,6 +729,8 @@ describe("error mapping", () => {
     [400, "wire_version_unsupported", InvalidEvidenceError],
     [400, "invalid_enroll_shape", InvalidEvidenceError],
     [400, "invalid_ask", InvalidAskError],
+    [400, "invalid_purpose", InvalidAskError],
+    [400, "invalid_certification", InvalidEvidenceError],
     [429, "budget_exhausted", QuotaExceededError],
     [429, "rate_limited", RateLimitedError],
   ];
@@ -755,6 +757,33 @@ describe("error mapping", () => {
     expect(err).toBeInstanceOf(InvalidAskError);
     expect(err).not.toBeInstanceOf(InvalidEvidenceError);
   });
+
+  it("maps invalid_purpose from issueKeyChallenge to InvalidAskError, not the device-failure class", async () => {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(400, { error: "invalid_purpose" }) });
+    const err = await rh.issueKeyChallenge({ purpose: "sign" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidAskError);
+    expect(err).not.toBeInstanceOf(InvalidEvidenceError);
+    expect((err as RootHeraldApiError).errorCode).toBe("invalid_purpose");
+  });
+
+  for (const [status, errorCode] of [
+    [422, "certification_rejected"],
+    [422, "key_disclosure_too_low"],
+    [422, "expected_unknown"],
+    [422, "purpose_unsupported"],
+    [409, "key_rotation_conflict"],
+  ] as const) {
+    it(`keeps ${status} ${errorCode} a plain RootHeraldApiError with the code`, async () => {
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(status, { error: errorCode }) });
+      const err = await rh.certifyKey(NONCE, { publicArea: "AA==", attest: "AA==", signature: "AA==" }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RootHeraldApiError);
+      expect(err).not.toBeInstanceOf(UnknownPolicyError);
+      expect(err).not.toBeInstanceOf(ChallengeError);
+      expect((err as RootHeraldApiError).constructor).toBe(RootHeraldApiError);
+      expect((err as RootHeraldApiError).status).toBe(status);
+      expect((err as RootHeraldApiError).errorCode).toBe(errorCode);
+    });
+  }
 
   it("maps a 422 with no body code to UnknownPolicyError", async () => {
     const fetchMock = mockFetch(422, {});
