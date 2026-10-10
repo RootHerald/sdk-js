@@ -45,14 +45,14 @@ export interface ExtensionBehavior {
   /** If true, `status` never answers (simulates a hung host probe). */
   statusHangs?: boolean;
   /** Enroll request blob returned on a successful `enroll-begin`. */
-  enrollRequestBlob?: EnrollRequestBlob;
+  enrollBody?: EnrollRequestBlob;
   /** Activation blob returned on a successful `enroll-complete`. */
   activationBlob?: EnrollActivationResponse;
   /** If true, `enroll-begin` never answers (simulates a hung TPM op). */
   enrollBeginHangs?: boolean;
   /** If true, `enroll-complete` never answers (simulates a hung UAC). */
   enrollCompleteHangs?: boolean;
-  /** If true, `enroll-begin` succeeds but omits the enrollRequestBlob. */
+  /** If true, `enroll-begin` succeeds but omits the enrollBody. */
   enrollBeginNoBlob?: boolean;
   /** If true, `enroll-begin` succeeds but omits the akBlob. */
   enrollBeginNoAk?: boolean;
@@ -98,7 +98,7 @@ interface SeenRequest {
   keyChallenge?: unknown;
   akBlob?: unknown;
   keyBlob?: unknown;
-  digest?: unknown;
+  data?: unknown;
 }
 
 export class FakeWindow implements MessageWindow {
@@ -134,7 +134,7 @@ export class FakeWindow implements MessageWindow {
       keyChallenge: req.keyChallenge,
       akBlob: req.akBlob,
       keyBlob: req.keyBlob,
-      digest: req.digest,
+      data: req.data,
     });
     queueMicrotask(() => this.respond(req));
   }
@@ -220,7 +220,7 @@ export class FakeWindow implements MessageWindow {
       if (b.enrollBeginHangs) return;
       if (b.hostPresent === false) return void this.hostFailure(requestId);
       const data: Record<string, unknown> = {};
-      if (!b.enrollBeginNoBlob) data.enrollRequestBlob = b.enrollRequestBlob ?? DEFAULT_ENROLL_REQUEST;
+      if (!b.enrollBeginNoBlob) data.enrollBody = b.enrollBody ?? DEFAULT_ENROLL_REQUEST;
       if (!b.enrollBeginNoAk) data.akBlob = b.akBlob ?? DEFAULT_AK_BLOB;
       this.ok(requestId, data);
       return;

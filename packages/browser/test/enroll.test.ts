@@ -37,7 +37,7 @@ describe('enroll (keyless, backend-relayed)', () => {
 
     // The page keeps the AK blob and learns nothing else about the device.
     expect(res).toEqual({ ak: DEFAULT_AK_BLOB });
-    // relay.enroll got the nested 8.0 enrollRequestBlob the host produced.
+    // relay.enroll got the nested 8.0 enrollBody the host produced.
     expect(relay.enroll).toHaveBeenCalledTimes(1);
     expect(relay.enroll.mock.calls[0][0]).toMatchObject({
       ekPublicKey: expect.any(String),

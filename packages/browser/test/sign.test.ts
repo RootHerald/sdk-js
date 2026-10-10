@@ -12,12 +12,8 @@ import { FakeWindow } from './fake-window.js';
 const FAST = { timeoutMs: 50 } as const;
 const KEY = 'cmhrMQIB...';
 
-async function sha256b64url(bytes: Uint8Array): Promise<string> {
-  return toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))));
-}
-
 describe('sign', () => {
-  it('posts a `sign` message with the key blob and the base64url SHA-256 digest of the data', async () => {
+  it('posts a `sign` message with the key blob and base64url data', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
     const data = new Uint8Array([0xfb, 0xff, 0xfe]);
     await sign(KEY, data, { ...FAST, win });
@@ -25,17 +21,18 @@ describe('sign', () => {
     expect(win.requests[0]).toEqual({
       action: 'sign',
       keyBlob: KEY,
-      digest: await sha256b64url(data),
+      data: '-__-', // 0xfb 0xff 0xfe is "+//+" in base64; base64url turns it into "-__-"
       challenge: undefined,
       keyChallenge: undefined,
       akBlob: undefined,
     });
   });
 
-  it('encodes a string as UTF-8 before hashing', async () => {
+  it('encodes a string as UTF-8 before base64url', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
     await sign(KEY, 'héllo', { ...FAST, win });
-    expect(win.requests[0]!.digest).toBe(await sha256b64url(new TextEncoder().encode('héllo')));
+    expect(win.requests[0]!.data).toBe(toBase64Url(new TextEncoder().encode('héllo')));
+    expect(win.requests[0]!.data).toBe('aMOpbGxv');
   });
 
   it('returns { alg, signature } from the host, for ES256 and RS256', async () => {

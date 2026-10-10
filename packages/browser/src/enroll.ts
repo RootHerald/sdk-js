@@ -15,8 +15,8 @@
  * `relayEnroll` / `relayActivate` (with its `rh_sk_` secret) to reach RootHerald.
  *
  * Flow:
- *   1. `enroll-begin` {}                         -> { enrollRequestBlob, akBlob }  (host EnrollBegin)
- *   2. relay.enroll(enrollRequestBlob)           -> RelayEnrollResult { challenge }
+ *   1. `enroll-begin` {}                         -> { enrollBody, akBlob }         (host EnrollBegin)
+ *   2. relay.enroll(enrollBody)                  -> RelayEnrollResult { challenge }
  *   3. `enroll-complete` { challenge, akBlob }   -> { activationBlob }           (host EnrollComplete)
  *   4. relay.activate(activationBlob)            -> done
  *
@@ -47,12 +47,12 @@ import { sendRequest, TIMED_OUT, type MessageWindow } from './transport.js';
  */
 export interface EnrollRelay {
   /**
-   * Relay leg 1. POST `enrollRequestBlob` to your backend, which calls
+   * Relay leg 1. POST `enrollBody` to your backend, which calls
    * @rootherald/node `relayEnroll(blob)` and returns its
    * {@link RelayEnrollResult}. Admission runs under the identity policy bound
    * to the backend's API key.
    */
-  enroll(enrollRequestBlob: EnrollRequestBlob): Promise<RelayEnrollResult>;
+  enroll(enrollBody: EnrollRequestBlob): Promise<RelayEnrollResult>;
   /**
    * Relay leg 2. POST the `activationBlob` to your backend, which calls
    * @rootherald/node `relayActivate(blob)`. The return value is ignored;
@@ -126,12 +126,12 @@ export async function enroll(
     throw await failureOf(beginRes, 'beginning enrollment', win);
   }
   requireHostAbi(beginRes.data, { required: true });
-  const enrollRequestBlob = beginRes.data?.enrollRequestBlob as
+  const enrollBody = beginRes.data?.enrollBody as
     | EnrollRequestBlob
     | undefined;
-  if (!enrollRequestBlob) {
+  if (!enrollBody) {
     throw new HostMissingError(
-      'Extension reported success but returned no enrollRequestBlob',
+      'Extension reported success but returned no enrollBody',
     );
   }
   const ak = beginRes.data?.akBlob;
@@ -140,7 +140,7 @@ export async function enroll(
   }
 
   // ── Relay leg 1: embedder POSTs the blob to its backend (rh_sk_) ───────────
-  const relayResult = await relay.enroll(enrollRequestBlob);
+  const relayResult = await relay.enroll(enrollBody);
 
   // ── Leg 2: host EnrollComplete(challenge, akBlob) -> activation blob ───────
   const completeRes = await sendRequest(

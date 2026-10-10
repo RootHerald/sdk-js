@@ -62,10 +62,10 @@ import { enroll } from '@rootherald/browser';
 const { ak } = await enroll({
   // Leg 1: POST the blob to YOUR backend, which calls @rootherald/node
   // `relayEnroll(blob)` and returns its RelayEnrollResult ({ challenge }).
-  enroll: (enrollRequestBlob) =>
+  enroll: (enrollBody) =>
     fetch('/rh/enroll', {
       method: 'POST',
-      body: JSON.stringify(enrollRequestBlob),
+      body: JSON.stringify(enrollBody),
     }).then((r) => r.json()),
 
   // Leg 2: POST the activation blob to YOUR backend, which calls
@@ -135,8 +135,8 @@ await fetch('/rh/login', { method: 'POST', body: JSON.stringify({ message, alg, 
 ```
 
 `data` for `sign` is the bytes to sign; a string is UTF-8 text, so the backend
-checks `"hello"` with `"hello"`. The page hashes the data and the host signs
-the SHA-256 digest. `alg` comes from the key: `ES256` for an EC key, `RS256`
+checks `"hello"` with `"hello"`. The bytes travel base64url and the host
+hashes them. `alg` comes from the key: `ES256` for an EC key, `RS256`
 for an RSA one.
 
 A signature proves possession of the key, not how the machine booted.

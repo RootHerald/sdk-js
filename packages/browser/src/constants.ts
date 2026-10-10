@@ -53,8 +53,8 @@ export const ACTION_ATTEST = 'attest' as const;
 export const ACTION_MINT_KEY = 'mint-key' as const;
 /**
  * Action: sign with a minted key (host `LoadKey` / `Sign` / `CloseKey`).
- * Takes the `keyBlob` from an earlier `mint-key` and the base64url SHA-256
- * `digest` to sign; returns `{ alg, signature }`. The private half never
+ * Takes the `keyBlob` from an earlier `mint-key` and the base64url `data`
+ * to sign; the host hashes it. Returns `{ alg, signature }`. The private half never
  * leaves the TPM.
  */
 export const ACTION_SIGN = 'sign' as const;
@@ -64,7 +64,7 @@ export const ACTION_STATUS = 'status' as const;
 export const ACTION_POSTURE = 'posture' as const;
 /**
  * Action: enroll leg 1 — the host's `EnrollBegin`. Creates this installation's
- * AK under the TPM's storage parent and returns the opaque `enrollRequestBlob`
+ * AK under the TPM's storage parent and returns the opaque `enrollBody`
  * ({@link import('@rootherald/contracts').EnrollRequestBlob}) for the
  * embedder's backend to relay to `/api/v1/attest/enroll`, plus the wrapped
  * `akBlob` the page keeps. No payload in.
@@ -108,8 +108,8 @@ export interface RootHeraldRequestMessage {
   akBlob?: AkBlob;
   /** The wrapped signing key, for `sign`. */
   keyBlob?: KeyBlob;
-  /** base64url SHA-256 digest of the bytes to sign, for `sign`. */
-  digest?: string;
+  /** base64url of the bytes to sign, for `sign`. The host hashes them. */
+  data?: string;
 }
 
 /** The `data` of a successful response, keyed by the action that produced it. */
@@ -126,10 +126,10 @@ export interface RootHeraldResponseData {
   akBlob?: AkBlob;
   /** `sign`: the signature algorithm, from the key: `ES256` or `RS256`. */
   alg?: string;
-  /** `sign`: base64url signature over the digest. */
+  /** `sign`: base64url signature over SHA-256 of `data`. */
   signature?: string;
   /** `enroll-begin`: the opaque enroll request for the backend to relay. */
-  enrollRequestBlob?: unknown;
+  enrollBody?: unknown;
   /** `enroll-complete`: the opaque activation blob for the backend to relay. */
   activationBlob?: unknown;
   /** Every host answer: the host's client ABI version, `"<major>.<minor>"`. */

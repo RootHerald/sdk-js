@@ -26,7 +26,7 @@ describe('attest', () => {
       akBlob: AK,
       keyChallenge: undefined,
       keyBlob: undefined,
-      digest: undefined,
+      data: undefined,
     });
   });
 

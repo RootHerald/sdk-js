@@ -10,15 +10,14 @@ the host stores nothing. Not published to npm.
 ### Breaking
 
 - `enroll(relay)` resolves `{ ak }`, the AK blob the page keeps and passes to
-  every `attest` and `mintKey`. `enroll-begin` returns `{ enrollRequestBlob,
+  every `attest` and `mintKey`. `enroll-begin` returns `{ enrollBody,
   akBlob }`; `enroll-complete` takes `{ challenge, akBlob }`.
 - `respond` is replaced by `attest(challenge, { ak })` → `{ evidence }`
   (`attest { challenge, akBlob }`) and `mintKey(keyChallenge, { ak })` →
   `{ certification, key }` (`mint-key { keyChallenge, akBlob }`). The `key`
   option and the key in the result are gone; `RespondRelay.verify` loses its
   second argument.
-- `sign` sends `{ keyBlob, digest }`, the base64url SHA-256 of the data, and
-  returns the `alg` the host reads from the key: `ES256` or `RS256`. A host
+- `sign` returns the `alg` the host reads from the key: `ES256` or `RS256`. A host
   that omits `alg` is refused.
 - Every host answer must carry `abi`; a major other than 8 is
   `AbiMismatchError`, raised on the page. `enroll-begin` without an `abi` is

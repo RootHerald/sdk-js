@@ -2,9 +2,8 @@
  * sign — sign with a minted key (host `LoadKey` / `KeyInfo` / `Sign` / `CloseKey`).
  *
  * The page holds only the wrapped `KeyBlob` from an earlier `mintKey`. The
- * page hashes the data; the host loads the blob back into the TPM that made
- * it, signs the digest there, and releases the key; the private half never
- * leaves the TPM. The backend checks the signature against the JWK it kept
+ * host hashes the data, loads the blob back into the TPM that made it, signs
+ * there, and releases the key; the private half never leaves the TPM. The backend checks the signature against the JWK it kept
  * from `certifyKey` — no RootHerald call.
  */
 
@@ -45,8 +44,8 @@ const ALGS: readonly string[] = ['ES256', 'RS256'];
  *
  * `data` is the bytes to sign. A string is UTF-8 text — the same convention as
  * `verifyKeySignature` on the backend, so a page that signs `"hello"` is
- * checked there with `"hello"`. The page sends the SHA-256 digest of the
- * bytes; the host signs the digest.
+ * checked there with `"hello"`. On the wire the bytes travel base64url; the
+ * host hashes them.
  *
  * Throws:
  *   - {@link ExtensionMissingError} if the extension never responds
@@ -69,14 +68,10 @@ export async function sign(
   if (bytes === undefined) {
     throw new TypeError('sign: `data` must be a Uint8Array or a string');
   }
-  // A fresh copy owns a plain ArrayBuffer, which is what `digest` accepts; a
-  // caller's view may sit on a SharedArrayBuffer or carry an offset.
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes)));
-
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const res = await sendRequest(
-    { action: ACTION_SIGN, keyBlob: key, digest: toBase64Url(digest) },
+    { action: ACTION_SIGN, keyBlob: key, data: toBase64Url(bytes) },
     { timeoutMs, win: opts.win },
   );
 

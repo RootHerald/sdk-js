@@ -25,7 +25,7 @@ describe('mintKey', () => {
       akBlob: AK,
       challenge: undefined,
       keyBlob: undefined,
-      digest: undefined,
+      data: undefined,
     });
   });
 
