@@ -1,5 +1,5 @@
 /**
- * onClientStatusChange — live cold-start detection for install steppers.
+ * onClientStatusChange — live detection for an install view.
  *
  * Polls `getClientStatus()` on an interval and invokes the callback whenever
  * the resolved status changes (and once immediately with the first reading),

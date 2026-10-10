@@ -1,32 +1,32 @@
 /**
  * Device enrollment — orchestrate the keyless, backend-relayed enroll handshake.
  *
- * A first-time device must ENROLL before {@link import('./respond.js').respond}
- * can answer an identity challenge. Enrollment is a two-leg credential-activation handshake; the local TPM
- * halves run on the native host under a SINGLE elevation (one "Establish
- * hardware key" UAC) via raw-TBS — `EnrollBegin` (gen AK, gather EK) then
- * `EnrollComplete` (`TPM2_ActivateCredential`) in the SAME resident elevated
- * worker.
+ * Each installation enrolls once before it can {@link import('./attest.js').attest}
+ * or {@link import('./mint-key.js').mintKey}. Enrollment is a two-leg
+ * credential-activation handshake on the native host: `EnrollBegin` creates
+ * this installation's attestation key under the TPM's storage parent and
+ * hands it back wrapped, then `EnrollComplete` runs `TPM2_ActivateCredential`
+ * with it. On Windows the second leg needs one elevation per enrollment.
  *
  * KEYLESS: the page holds no RootHerald key and never talks to RootHerald. The
  * two network legs are RELAYED by the embedder's backend. This SDK calls back
  * into embedder-provided `relay.enroll` / `relay.activate`, which POST the opaque
  * blobs to the embedder's OWN backend; that backend uses @rootherald/node's
  * `relayEnroll` / `relayActivate` (with its `rh_sk_` secret) to reach RootHerald.
- * The browser only moves blobs across the page<->extension<->host bridge.
  *
  * Flow:
- *   1. `enroll-begin` {}               -> { enrollRequestBlob }   (host EnrollBegin)
- *   2. relay.enroll(enrollRequestBlob) -> RelayEnrollResult { challenge }
- *   3. `enroll-complete` { challenge } -> { activationBlob }     (host EnrollComplete)
- *   4. relay.activate(activationBlob)  -> done
+ *   1. `enroll-begin` {}                         -> { enrollRequestBlob, akBlob }  (host EnrollBegin)
+ *   2. relay.enroll(enrollRequestBlob)           -> RelayEnrollResult { challenge }
+ *   3. `enroll-complete` { challenge, akBlob }   -> { activationBlob }           (host EnrollComplete)
+ *   4. relay.activate(activationBlob)            -> done
  *
- * Nothing the server assigns comes back to the page. The device's alias is
- * returned to the backend by `relayActivate` and stays there; a verdict's
- * `device.ueid` is what the backend keys on.
+ * The page keeps `akBlob` and passes it to every attest and mint. Nothing
+ * the server assigns comes back to the page: the device's alias is returned
+ * to the backend by `relayActivate` and stays there.
  */
 
 import type {
+  AkBlob,
   EnrollRequestBlob,
   EnrollActivationResponse,
 } from '@rootherald/contracts';
@@ -36,7 +36,7 @@ import type {
 } from '@rootherald/contracts/server';
 import { ACTION_ENROLL_BEGIN, ACTION_ENROLL_COMPLETE } from './constants.js';
 import { HostMissingError } from './errors.js';
-import { failureOf } from './host-error.js';
+import { failureOf, requireHostAbi } from './host-error.js';
 import { sendRequest, TIMED_OUT, type MessageWindow } from './transport.js';
 
 /**
@@ -71,18 +71,27 @@ export interface EnrollOptions {
   win?: MessageWindow;
 }
 
+/** What {@link enroll} resolves with. */
+export interface EnrollResult {
+  /**
+   * This installation's wrapped attestation key. Keep it; pass it to every
+   * `attest` and `mintKey`. It is a credential: any code that can read it
+   * can attest as this installation.
+   */
+  ak: AkBlob;
+}
+
 // Enrollment can block on a user-facing UAC prompt, so each native-host leg gets
 // a generous default: above the extension's own 125 s host timeout, so a slow
 // leg is reported by the extension rather than by this timer firing first.
 const DEFAULT_TIMEOUT_MS = 135_000;
 
 /**
- * Enroll this device with RootHerald via the embedder-relayed handshake.
+ * Enroll this installation with RootHerald via the embedder-relayed handshake.
  *
- * Idempotent — a device that has enrolled before runs the same two legs again.
- * Re-enrollment is also how a device rotates its attestation key, so it is
- * never short-circuited. Resolves with nothing: the page learns nothing about
- * the device it enrolled, by design.
+ * Every call creates a new installation with a new AK blob; the device's
+ * alias does not change. Resolves with the AK blob and nothing else: the page
+ * learns nothing about the device it enrolled.
  *
  * @param relay  Embedder callbacks that bridge the two network legs to the
  *               embedder's backend (which holds `rh_sk_`). The browser never
@@ -91,14 +100,15 @@ const DEFAULT_TIMEOUT_MS = 135_000;
  *   - {@link ExtensionMissingError} if the extension never responds
  *   - {@link HostMissingError} if the extension is present but the native host
  *     could not be reached / errored (incl. a declined UAC)
- *   - {@link AbiMismatchError} if the host is a different version than this SDK
+ *   - {@link AbiMismatchError} if the host reports an ABI major other than
+ *     this SDK's, checked before anything is relayed
  *   - {@link TimeoutError} if a leg started but did not complete in time
  *   - whatever `relay.enroll` / `relay.activate` reject with (backend errors)
  */
 export async function enroll(
   relay: EnrollRelay,
   opts: EnrollOptions = {},
-): Promise<void> {
+): Promise<EnrollResult> {
   if (!relay || typeof relay.enroll !== 'function' || typeof relay.activate !== 'function') {
     throw new TypeError(
       'enroll: `relay` must provide `enroll` and `activate` callbacks that bridge to your backend',
@@ -107,7 +117,7 @@ export async function enroll(
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const win = opts.win;
 
-  // ── Leg 1: host EnrollBegin -> opaque enroll request blob ──────────────────
+  // ── Leg 1: host EnrollBegin -> enroll request blob + AK blob ───────────────
   const beginRes = await sendRequest(
     { action: ACTION_ENROLL_BEGIN },
     { timeoutMs, win },
@@ -115,6 +125,7 @@ export async function enroll(
   if (beginRes === TIMED_OUT || beginRes.success !== true) {
     throw await failureOf(beginRes, 'beginning enrollment', win);
   }
+  requireHostAbi(beginRes.data, { required: true });
   const enrollRequestBlob = beginRes.data?.enrollRequestBlob as
     | EnrollRequestBlob
     | undefined;
@@ -123,18 +134,23 @@ export async function enroll(
       'Extension reported success but returned no enrollRequestBlob',
     );
   }
+  const ak = beginRes.data?.akBlob;
+  if (typeof ak !== 'string' || ak.length === 0) {
+    throw new HostMissingError('Extension reported success but returned no akBlob');
+  }
 
   // ── Relay leg 1: embedder POSTs the blob to its backend (rh_sk_) ───────────
   const relayResult = await relay.enroll(enrollRequestBlob);
 
-  // ── Leg 2: host EnrollComplete(challenge) -> opaque activation blob ────────
+  // ── Leg 2: host EnrollComplete(challenge, akBlob) -> activation blob ───────
   const completeRes = await sendRequest(
-    { action: ACTION_ENROLL_COMPLETE, challenge: relayResult.challenge },
+    { action: ACTION_ENROLL_COMPLETE, challenge: relayResult.challenge, akBlob: ak },
     { timeoutMs, win },
   );
   if (completeRes === TIMED_OUT || completeRes.success !== true) {
     throw await failureOf(completeRes, 'completing enrollment', win);
   }
+  requireHostAbi(completeRes.data, { required: false });
   const activationBlob = completeRes.data?.activationBlob as
     | EnrollActivationResponse
     | undefined;
@@ -146,4 +162,5 @@ export async function enroll(
 
   // ── Relay leg 2: embedder POSTs the activation blob to its backend ─────────
   await relay.activate(activationBlob);
+  return { ak };
 }

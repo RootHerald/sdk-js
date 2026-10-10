@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getPosture } from '../src/posture.js';
-import { ExtensionMissingError, HostMissingError, NotEnrolledError } from '../src/errors.js';
+import { AbiMismatchError, ExtensionMissingError, HostMissingError, NotEnrolledError } from '../src/errors.js';
 import { FakeWindow } from './fake-window.js';
 
 const FAST = { timeoutMs: 50 } as const;
@@ -10,12 +10,19 @@ describe('getPosture', () => {
     const win = new FakeWindow({
       extensionPresent: true,
       hostPresent: true,
-      posture: { abi: '7.0', host: '1.4.0', enrolled: false, secureBoot: true },
+      posture: { host: '2.0.0', capabilities: 3, secureBoot: true },
     });
     const out = await getPosture({ ...FAST, win });
     expect(win.requests[0]).toMatchObject({ action: 'posture' });
-    expect(out).toEqual({ abi: '7.0', host: '1.4.0', enrolled: false, secureBoot: true });
-    expect(out.abi).toBe('7.0');
+    expect(out).toEqual({ abi: '8.0', host: '2.0.0', capabilities: 3, secureBoot: true });
+    expect(out.abi).toBe('8.0');
+    expect(out.capabilities).toBe(3);
+    expect('enrolled' in out).toBe(false);
+  });
+
+  it('throws AbiMismatchError when the host reports another ABI major', async () => {
+    const win = new FakeWindow({ extensionPresent: true, hostPresent: true, abi: '7.0' });
+    await expect(getPosture({ ...FAST, win })).rejects.toBeInstanceOf(AbiMismatchError);
   });
 
   it('throws ExtensionMissingError when the extension never responds', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@rootherald/browser",
-  "version": "0.1.0-alpha.19",
+  "version": "0.1.0-alpha.20",
   "description": "Browser SDK for RootHerald — responds to attestation challenges and signs with certified keys through the RootHerald browser extension, and exposes cold-start client detection",
   "type": "module",
   "main": "./dist/index.cjs",

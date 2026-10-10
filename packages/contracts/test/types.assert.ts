@@ -23,26 +23,28 @@ import type {
   RelayEnrollResult,
 } from "../src/server.js";
 import type {
+  AkBlob,
   CertifiedKey,
+  CertifyKeyRequest,
   ChallengeRequest,
   ChallengeResponse,
   KeyBlob,
   KeyCertification,
+  KeyChallengeRequest,
+  KeyChallengeResponse,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "../src/background-check.js";
 import type { AttestationVerdict } from "../src/sdk-api.js";
-import { buildMobileAttestLink } from "../src/mobile-bridge.js";
-import type {
-  BuildMobileAttestLinkOptions,
-  MobileAppEnrollRequest,
-  MobileAppVerifyRequest,
-} from "../src/mobile-bridge.js";
 
 // ── EnrollRequestBlob == POST /api/v1/attest/enroll body, per platform ─────
 const enrollBody = {
-  ekPublicKey: "<base64 PCP_EKPUB>",
-  akPublicArea: "<base64 TPM2B_PUBLIC>",
+  ekPublicKey: "<base64 TPM2B_PUBLIC of the EK>",
+  attestationKey: {
+    publicArea: "<base64 TPM2B_PUBLIC of the AK>",
+    parentPublicArea: "<base64 TPM2B_PUBLIC of the storage parent>",
+    qualifiedName: "<base64 TPM2B_NAME>",
+  },
   platform: "windows",
   ekCertPem: "-----BEGIN CERTIFICATE-----...",
   ekCertificateChain: ["-----BEGIN CERTIFICATE-----..."],
@@ -52,10 +54,20 @@ const enrollBody = {
 // Firmware-TPM variant: EK cert + chain absent (Intel PTT). Must still satisfy.
 const enrollBodyNoCert = {
   ekPublicKey: "<base64>",
-  akPublicArea: "<base64>",
+  attestationKey: { publicArea: "<base64>", parentPublicArea: "<base64>", qualifiedName: "<base64>" },
   platform: "linux",
 } satisfies TpmEnrollRequestBlob;
 
+// The 7.0 flat TPM body no longer types: the AK is nested in 8.0.
+const enrollBodyFlat7 = {
+  ekPublicKey: "<base64>",
+  akPublicArea: "<base64>",
+  platform: "windows",
+};
+// @ts-expect-error a flat TPM body is a 7.0 shape
+const enrollBodyFlat7Refused: TpmEnrollRequestBlob = enrollBodyFlat7;
+
+// macOS stays flat: the enclave key is both EK and AK and has no parent.
 const enrollBodyMac = {
   ekPublicKey: "<base64 X9.63 P-256>",
   akPublicArea: "<base64 X9.63 P-256>",
@@ -87,6 +99,7 @@ const enrollChallengeMac = {
 const enrollChallengeIos = {} satisfies RelayEnrollResponse;
 
 // ── EnrollActivationResponse == POST /api/v1/attest/activate body ─────────
+// Unchanged from 7.0: the wrong-parent check moved to leg one (qualifiedName).
 const activateBody = {
   enrollmentId: "f1a2...uuid",
   decryptedSecret: "<base64 32-byte secret>",
@@ -116,82 +129,114 @@ const relayEnrollResultIos = {
   challenge: enrollChallengeIos,
 } satisfies RelayEnrollResult;
 
-// ── ChallengeRequest == POST /api/v1/attest/challenge body, one per ask ────
-// An empty body is today's behaviour: ask defaults to ["identity", "posture"].
+// The blobs the device keeps; no SDK parses them.
+const akBlob: AkBlob = "cmhhMQEB...base64url";
+const keyBlob: KeyBlob = "cmhrMQIB...base64url";
+
+// ── ChallengeRequest == POST /api/v1/attest/challenge body ─────────────────
+// An empty body: ask defaults to ["identity", "posture"].
 const challengeReqDefault = {} satisfies ChallengeRequest;
 
 const challengeReqIdentity = {
   ask: ["identity"],
-  deviceHint: "laptop-7",
 } satisfies ChallengeRequest;
 
 const challengeReqPosture = {
   ask: ["posture"],
 } satisfies ChallengeRequest;
 
-// `keyPurpose` is read only because `ask` contains "key".
+const challengeReqBound = {
+  ask: ["identity"],
+  expectedKey: "k-9f3a",
+  expectedDevices: ["f1a2...uuid"],
+} satisfies ChallengeRequest;
+
+// The key ask and keyPurpose left with wire 8.0; keys have their own ceremony.
 const challengeReqKey = {
-  ask: ["identity", "posture", "key"],
+  // @ts-expect-error "key" is not an Ask
+  ask: ["identity", "key"],
+} satisfies ChallengeRequest;
+const challengeReqKeyPurpose = {
+  ask: ["identity"],
+  // @ts-expect-error keyPurpose is not a challenge field
   keyPurpose: "sign",
+} satisfies ChallengeRequest;
+const challengeReqDeviceHint = {
+  // @ts-expect-error deviceHint is gone
+  deviceHint: "laptop-7",
 } satisfies ChallengeRequest;
 
 // ── ChallengeResponse == 200 of /attest/challenge, with the rhc1 string ────
 // `challenge` is `rhc1.<base64url nonce>.<base64url ask-json>`; the second
 // segment is `nonce` verbatim (base64url, unpadded), the third is
-// {"ask":["identity","posture","key"],"purpose":"sign"} — `purpose` is present
-// only when the ask contains "key".
+// {"ask":["identity","posture"]}.
 const challengeResp = {
   nonce: "CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY",
   expiresAt: "2026-06-30T00:05:00Z",
   challenge:
     "rhc1.CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY." +
-    "eyJhc2siOlsiaWRlbnRpdHkiLCJwb3N0dXJlIiwia2V5Il0sInB1cnBvc2UiOiJzaWduIn0",
+    "eyJhc2siOlsiaWRlbnRpdHkiLCJwb3N0dXJlIl19",
 } satisfies ChallengeResponse;
 
-// ── Evidence carrying a key certification (documented contents) ────────────
-// EvidenceBlob is `unknown` on the wire; the nested object is pinned on its own.
-const keyCertification = {
-  publicArea: "<base64 TPM2B_PUBLIC of the new P-256 key>",
-  attest: "<base64 TPM2B_ATTEST from TPM2_Certify>",
-  signature: "<base64 TPMT_SIGNATURE by the AK>",
-  purpose: "sign",
-} satisfies KeyCertification;
-
-const evidenceWithKey = {
+// ── Evidence (documented contents; opaque on the wire) ─────────────────────
+const evidence = {
   pcrValues: { sha256: { "7": "<hex>" } },
   quote: { quoted: "<base64 TPMS_ATTEST>", signature: "<base64 TPMT_SIGNATURE>" },
-  eventLog: "<base64>",
-  keyCertification,
+  logs: { srtm: "<base64 TCG log>" },
 } as unknown; // EvidenceBlob is opaque (unknown)
 
 const verifyReq = {
   nonce: challengeResp.nonce,
-  evidence: { quote: {} } as unknown, // EvidenceBlob is opaque (unknown)
+  evidence,
 } satisfies VerifyAttestationRequest;
 
-const verifyReqWithKey = {
-  nonce: challengeResp.nonce,
-  evidence: evidenceWithKey,
-} satisfies VerifyAttestationRequest;
-
-// ── VerifyAttestationResponse, with and without the key block ──────────────
-// The verdict shape is the existing AttestationVerdict; only the fields the
-// key samples turn on are spelled out.
+// ── VerifyAttestationResponse ──────────────────────────────────────────────
+// #402: every DeviceVerdictDto field types without a cast; ueid is optional.
 const passVerdict = {
   acr: "urn:rootherald:device:high",
   amr: ["hwk"],
   authTime: new Date("2026-06-30T00:01:00Z"),
   expiresAt: new Date("2026-06-30T00:06:00Z"),
-  userId: "u-1",
   requestedAcrValues: ["urn:rootherald:device:high"],
   device: {
     ueid: "f1a2...uuid",
+    disclosureClass: "pseudonymous",
+    earStatus: "affirming",
+    verdict: "pass",
+    attestationType: "tpm20",
+    attestedAt: new Date("2026-06-30T00:01:00Z"),
+    postureEvaluated: true,
+    tpmKind: "firmware-tpm",
+    hardwareGenuine: true,
+    ekChainTrusted: true,
+    sybilResistance: "distinct-silicon-rotatable",
+    returningDevice: true,
+    identityAgeBucket: "under-90d",
+    bootChanged: true,
+    bootChangedStages: [7],
+    bootChangeAccepted: false,
+  },
+  expected: { key: "k-9f3a", devices: ["f1a2...uuid"] },
+} satisfies AttestationVerdict;
+
+const tpmKind: string | undefined = passVerdict.device.tpmKind;
+const bootChangedStages: number[] | undefined = passVerdict.device.bootChangedStages;
+const ueid: string | undefined = passVerdict.device.ueid;
+
+// Below pseudonymous: no ueid, no userId.
+const verdictOnlyVerdict = {
+  acr: "urn:rootherald:device:any",
+  amr: ["hwk"],
+  authTime: new Date("2026-06-30T00:01:00Z"),
+  expiresAt: new Date("2026-06-30T00:06:00Z"),
+  requestedAcrValues: [],
+  device: {
+    disclosureClass: "verdict",
     earStatus: "affirming",
     verdict: "pass",
     attestationType: "tpm20",
     attestedAt: new Date("2026-06-30T00:01:00Z"),
   },
-  raw: {},
 } satisfies AttestationVerdict;
 
 const failVerdict = {
@@ -199,71 +244,115 @@ const failVerdict = {
   device: { ...passVerdict.device, earStatus: "contraindicated", verdict: "fail" },
 } satisfies AttestationVerdict;
 
-const certifiedKey = {
-  keyId: "k-9f3a",
-  jwk: {
-    kty: "EC",
-    crv: "P-256",
-    x: "<base64url x>",
-    y: "<base64url y>",
-  },
+const verifyResp = {
+  verdict: passVerdict,
+  assuranceClaimsMet: ["device:high"],
+} satisfies VerifyAttestationResponse;
+
+const verifyRespUnenrolled = {
+  verdict: failVerdict,
+  enrollmentRequired: true,
+} satisfies VerifyAttestationResponse;
+
+// The verify response carries no key: keys come from /keys/certify.
+const verifyRespWithKey = {
+  verdict: passVerdict,
+  // @ts-expect-error key is not a verify response field
+  key: { keyId: "k-1" },
+} satisfies VerifyAttestationResponse;
+
+// ── Mint a key: /keys/challenge + /keys/certify ────────────────────────────
+const keyChallengeReq = {
   purpose: "sign",
+  expectedDevices: ["f1a2...uuid"],
+} satisfies KeyChallengeRequest;
+
+// `keyChallenge` is `rhk1c.<base64url nonce>.<base64url {"purpose":"sign"}>`.
+const keyChallengeResp = {
+  nonce: "CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY",
+  keyChallenge:
+    "rhk1c.CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY." +
+    "eyJwdXJwb3NlIjoic2lnbiJ9",
+  expiresAt: "2026-06-30T00:05:00Z",
+} satisfies KeyChallengeResponse;
+
+const tpmCertification = {
+  publicArea: "<base64 TPM2B_PUBLIC of the new key>",
+  attest: "<base64 TPM2B_ATTEST from TPM2_Certify>",
+  signature: "<base64 TPMT_SIGNATURE by the AK>",
+} satisfies KeyCertification;
+
+// The purpose comes from the key-challenge row, never from the certification.
+const tpmCertificationWithPurpose = {
+  ...tpmCertification,
+  // @ts-expect-error purpose is not a certification field
+  purpose: "sign",
+} satisfies KeyCertification;
+
+const macCertification = {
+  platform: "macos",
+  publicKey: "<base64 X9.63 P-256>",
+  signature: "<base64 ECDSA over prefix || nonce>",
+} satisfies KeyCertification;
+
+const iosCertification = {
+  platform: "ios",
+  keyId: "<base64 key id>",
+  assertion: "<base64 CBOR assertion>",
+} satisfies KeyCertification;
+
+const certifyReq = {
+  nonce: keyChallengeResp.nonce,
+  certification: tpmCertification,
+} satisfies CertifyKeyRequest;
+
+const certifiedEcKey = {
+  deviceId: "f1a2...uuid",
+  keyId: "k-9f3a",
+  purpose: "sign",
+  alg: "ES256",
+  jwk: { kty: "EC", crv: "P-256", x: "<base64url x>", y: "<base64url y>" },
+  hardwareBound: true,
   certifiedAt: "2026-06-30T00:01:00Z",
 } satisfies CertifiedKey;
 
-// Passing verdict on a "key" ask: the key block is present.
-const verifyRespWithKey = {
-  verdict: passVerdict,
-  assuranceClaimsMet: ["device:high"],
-  key: certifiedKey,
-} satisfies VerifyAttestationResponse;
+const certifiedRsaKey = {
+  deviceId: "f1a2...uuid",
+  keyId: "k-1b2c",
+  purpose: "sign",
+  alg: "RS256",
+  jwk: { kty: "RSA", n: "<base64url n>", e: "AQAB" },
+  hardwareBound: true,
+  certifiedAt: "2026-06-30T00:01:00Z",
+} satisfies CertifiedKey;
 
-// Failing verdict on the same "key" ask: no key block, whatever the evidence
-// carried. Spelled out as a variable of the declared type so a future
-// `key: CertifiedKey` (required) would fail here.
-const verifyRespFailedKeyAsk: VerifyAttestationResponse = {
-  verdict: failVerdict,
-};
+const certifiedDecryptKey = {
+  deviceId: "f1a2...uuid",
+  keyId: "k-d3e4",
+  purpose: "decrypt",
+  alg: "ECDH-ES",
+  format: "jwe",
+  jwk: { kty: "EC", crv: "P-256", x: "<base64url x>", y: "<base64url y>" },
+  hardwareBound: true,
+  certifiedAt: "2026-06-30T00:01:00Z",
+} satisfies CertifiedKey;
 
-// The caller stores the wrapped private key; no SDK parses it.
-const keyBlob: KeyBlob = "cmhrMQEA...roughly-300-bytes-of-base64url";
-
-// ── Mobile bridge forwards == what the customer's backend receives ─────────
-const mobileEnrollReq = {
-  nonce: challengeResp.nonce,
-  enrollment: enrollBodyIos,
-} satisfies MobileAppEnrollRequest;
-
-const mobileVerifyReq = {
-  nonce: challengeResp.nonce,
-  evidence: { iosAttestation: { assertion: "<base64 CBOR>", keyId: "<base64 key id>" } },
-} satisfies MobileAppVerifyRequest;
-
-// ── Mobile Universal Link == what the companion app parses ────────────────
-// The link relays `ChallengeResponse.challenge` verbatim under `challenge`
-// and nothing else. The app fails closed on anything else.
-const mobileLinkOpts = {
-  bridgeBaseUrl: "https://bridge.rootherald.io/",
-  challenge: challengeResp.challenge,
-} satisfies BuildMobileAttestLinkOptions;
-const mobileLink: string = buildMobileAttestLink(mobileLinkOpts);
-if (
-  mobileLink !==
-  "https://bridge.rootherald.io/try/attest?challenge=" +
-    encodeURIComponent(challengeResp.challenge)
-) {
-  throw new Error("buildMobileAttestLink shape drifted");
-}
+const certifiedMacKey = {
+  deviceId: "f1a2...uuid",
+  keyId: "k-5f6a",
+  purpose: "sign",
+  alg: "ES256",
+  jwk: { kty: "EC", crv: "P-256", x: "<base64url x>", y: "<base64url y>" },
+  hardwareBound: false,
+  certifiedAt: "2026-06-30T00:01:00Z",
+} satisfies CertifiedKey;
 
 // Reference the bindings so `noUnusedLocals`-style checks never trip and the
 // assertions are not tree-shaken away by lint.
 export const __contractAssertions = [
-  mobileLinkOpts,
-  mobileLink,
-  mobileEnrollReq,
-  mobileVerifyReq,
   enrollBody,
   enrollBodyNoCert,
+  enrollBodyFlat7Refused,
   enrollBodyMac,
   enrollBodyIos,
   enrollBodies,
@@ -278,16 +367,36 @@ export const __contractAssertions = [
   relayActivateResp,
   relayEnrollResult,
   relayEnrollResultIos,
+  akBlob,
+  keyBlob,
   challengeReqDefault,
   challengeReqIdentity,
   challengeReqPosture,
+  challengeReqBound,
   challengeReqKey,
+  challengeReqKeyPurpose,
+  challengeReqDeviceHint,
   challengeResp,
-  keyCertification,
-  evidenceWithKey,
+  evidence,
   verifyReq,
-  verifyReqWithKey,
+  passVerdict,
+  tpmKind,
+  bootChangedStages,
+  ueid,
+  verdictOnlyVerdict,
+  failVerdict,
+  verifyResp,
+  verifyRespUnenrolled,
   verifyRespWithKey,
-  verifyRespFailedKeyAsk,
-  keyBlob,
+  keyChallengeReq,
+  keyChallengeResp,
+  tpmCertification,
+  tpmCertificationWithPurpose,
+  macCertification,
+  iosCertification,
+  certifyReq,
+  certifiedEcKey,
+  certifiedRsaKey,
+  certifiedDecryptKey,
+  certifiedMacKey,
 ] as const;

@@ -1,10 +1,11 @@
 /**
  * Error class hierarchy for the RootHerald SDK.
  *
- * Three classes cover everything 0.1 needs:
  *   - RootHeraldError    — base; carries a machine-readable `code`
  *   - TokenExpiredError  — exp claim is in the past
  *   - InvalidTokenError  — signature, issuer, audience, or schema check failed
+ *   - RootHeraldApiError — base of the server-context errors, with `.status`
+ *                          and the server's `.errorCode`
  *
  * Consumers can discriminate via `instanceof` or by the `code` string.
  */
@@ -43,10 +44,11 @@ export class InvalidTokenError extends RootHeraldError {
 }
 
 /**
- * Base class for errors returned by the server-side Background-Check API
- * (`RootHeraldClient.issueChallenge` / `RootHeraldClient.verify`). Carries the HTTP
- * `status` and, when the server provided one, a machine-readable `errorCode`
- * (e.g. `invalid_secret_key`, `unknown_policy`).
+ * Base class for errors returned by the server-side Background-Check API.
+ * Carries the HTTP `status` and, when the server provided one, a
+ * machine-readable `errorCode` (e.g. `invalid_secret_key`, `expected_unknown`,
+ * `key_rotation_conflict`). A code no subclass covers stays this class with
+ * the code preserved.
  */
 export class RootHeraldApiError extends RootHeraldError {
   /** HTTP status code from the API response. */
@@ -90,7 +92,11 @@ export class UnknownPolicyError extends RootHeraldApiError {
   }
 }
 
-/** 409 — the challenge has expired or has already been used (single-use). */
+/**
+ * 409 — the challenge has expired or has already been used (single-use). A
+ * 409 carrying `key_rotation_conflict` is a plain {@link RootHeraldApiError}
+ * instead: the key challenge was fine, the rotation it asked for collided.
+ */
 export class ChallengeError extends RootHeraldApiError {
   constructor(message = "challenge expired or already used", errorCode?: string, cause?: unknown) {
     super(message, "CHALLENGE_EXPIRED_OR_USED", 409, errorCode, cause);
@@ -99,7 +105,12 @@ export class ChallengeError extends RootHeraldApiError {
   }
 }
 
-/** 400 — the evidence blob was malformed or could not be appraised. */
+/**
+ * 400 — the relayed blob was malformed or could not be appraised. This
+ * includes `wire_version_unsupported` (a 7.0-shaped enroll body) and
+ * `invalid_enroll_shape` (an AK whose qualified name does not follow from its
+ * parent). A 400 carrying `invalid_ask` is {@link InvalidAskError} instead.
+ */
 export class InvalidEvidenceError extends RootHeraldApiError {
   constructor(message = "invalid evidence", errorCode?: string, cause?: unknown) {
     super(message, "INVALID_EVIDENCE", 400, errorCode, cause);
@@ -109,14 +120,41 @@ export class InvalidEvidenceError extends RootHeraldApiError {
 }
 
 /**
- * 429 `quota_exceeded` (or an `X-RootHerald-Quota` header) — the `rh_sk_`
- * tenant has exceeded its metered verify quota. A 429 without that signal is
- * {@link RateLimitedError}.
+ * 400 `invalid_ask` — the challenge named an ask the server does not know,
+ * such as the retired `"key"`. The backend's code is wrong, not the device.
+ */
+export class InvalidAskError extends RootHeraldApiError {
+  constructor(message = "invalid ask", errorCode?: string, cause?: unknown) {
+    super(message, "INVALID_ASK", 400, errorCode, cause);
+    this.name = "InvalidAskError";
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/** The budget that refused a device, as the server names it. */
+export interface RefusingBudget {
+  id: string;
+  name: string;
+}
+
+/**
+ * 429 `budget_exhausted` (or an `X-RootHerald-Quota` header) — the API key's
+ * budget cannot pay for a device new to the period. `budget` names it. A 429
+ * without that signal is {@link RateLimitedError}.
  */
 export class QuotaExceededError extends RootHeraldApiError {
-  constructor(message = "quota exceeded", errorCode?: string, cause?: unknown) {
+  /** The budget that refused, when the server named it. */
+  public readonly budget?: RefusingBudget;
+
+  constructor(
+    message = "budget exhausted",
+    errorCode?: string,
+    budget?: RefusingBudget,
+    cause?: unknown,
+  ) {
     super(message, "QUOTA_EXCEEDED", 429, errorCode, cause);
     this.name = "QuotaExceededError";
+    this.budget = budget;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -154,7 +192,7 @@ export class ActivationRefusedError extends RootHeraldApiError {
  * 429 without a quota signal — the request-rate limiter refused the call.
  * Retry after `retryAfterSeconds` (from the `Retry-After` header, else the
  * body, else `undefined`). Distinct from {@link QuotaExceededError}, which is
- * the metered billing ceiling.
+ * the budget ceiling.
  */
 export class RateLimitedError extends RootHeraldApiError {
   /** Seconds to wait before retrying, when the server said. */

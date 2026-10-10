@@ -10,39 +10,54 @@ import {
 import { FakeWindow } from './fake-window.js';
 
 const FAST = { timeoutMs: 50 } as const;
-const KEY = 'cmhrMQEA...';
+const KEY = 'cmhrMQIB...';
+
+async function sha256b64url(bytes: Uint8Array): Promise<string> {
+  return toBase64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))));
+}
 
 describe('sign', () => {
-  it('posts a `sign` message with the key blob and base64url data', async () => {
+  it('posts a `sign` message with the key blob and the base64url SHA-256 digest of the data', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
-    await sign(KEY, new Uint8Array([0xfb, 0xff, 0xfe]), { ...FAST, win });
+    const data = new Uint8Array([0xfb, 0xff, 0xfe]);
+    await sign(KEY, data, { ...FAST, win });
     expect(win.requests).toHaveLength(1);
-    // 0xfb 0xff 0xfe is "+//+" in base64; base64url turns it into "-__-".
-    expect(win.requests[0]).toEqual({ action: 'sign', challenge: undefined, keyBlob: KEY, data: '-__-' });
+    expect(win.requests[0]).toEqual({
+      action: 'sign',
+      keyBlob: KEY,
+      digest: await sha256b64url(data),
+      challenge: undefined,
+      keyChallenge: undefined,
+      akBlob: undefined,
+    });
   });
 
-  it('encodes a string as UTF-8 before base64url', async () => {
+  it('encodes a string as UTF-8 before hashing', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true });
     await sign(KEY, 'héllo', { ...FAST, win });
-    expect(win.requests[0]!.data).toBe(toBase64Url(new TextEncoder().encode('héllo')));
-    expect(win.requests[0]!.data).toBe('aMOpbGxv');
+    expect(win.requests[0]!.digest).toBe(await sha256b64url(new TextEncoder().encode('héllo')));
   });
 
-  it('returns { alg, signature } from the host', async () => {
-    const win = new FakeWindow({ extensionPresent: true, hostPresent: true, signature: 'c2lnbmF0dXJl' });
-    const out = await sign(KEY, 'data', { ...FAST, win });
-    expect(out).toEqual({ alg: 'ES256', signature: 'c2lnbmF0dXJl' });
+  it('returns { alg, signature } from the host, for ES256 and RS256', async () => {
+    const ec = new FakeWindow({ extensionPresent: true, hostPresent: true, signature: 'c2lnbmF0dXJl' });
+    expect(await sign(KEY, 'data', { ...FAST, win: ec })).toEqual({ alg: 'ES256', signature: 'c2lnbmF0dXJl' });
+    const rsa = new FakeWindow({ extensionPresent: true, hostPresent: true, signature: 'cnNh', alg: 'RS256' });
+    expect(await sign(KEY, 'data', { ...FAST, win: rsa })).toEqual({ alg: 'RS256', signature: 'cnNh' });
   });
 
-  it('defaults alg to ES256 when the host omits it', async () => {
+  it('refuses a host that omits alg', async () => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: true, alg: null });
-    const out = await sign(KEY, 'data', { ...FAST, win });
-    expect(out.alg).toBe('ES256');
+    await expect(sign(KEY, 'data', { ...FAST, win })).rejects.toBeInstanceOf(HostMissingError);
   });
 
   it('refuses an unexpected alg', async () => {
-    const win = new FakeWindow({ extensionPresent: true, hostPresent: true, alg: 'RS256' });
+    const win = new FakeWindow({ extensionPresent: true, hostPresent: true, alg: 'PS256' });
     await expect(sign(KEY, 'data', { ...FAST, win })).rejects.toBeInstanceOf(HostMissingError);
+  });
+
+  it('refuses a host that reports another ABI major', async () => {
+    const win = new FakeWindow({ extensionPresent: true, hostPresent: true, abi: '7.0' });
+    await expect(sign(KEY, 'data', { ...FAST, win })).rejects.toBeInstanceOf(AbiMismatchError);
   });
 
   it('throws HostMissingError when the host reports success without a signature', async () => {
@@ -67,7 +82,7 @@ describe('sign', () => {
 
   it.each([
     ['rh:14:key blob could not be loaded', KeyUnloadableError],
-    ['rh:abi_mismatch:host speaks ABI 5.0', AbiMismatchError],
+    ['rh:abi_mismatch:host speaks ABI 7.0', AbiMismatchError],
     ['Request timed out', TimeoutError],
   ])('maps %s to %s', async (hostError, ErrClass) => {
     const win = new FakeWindow({ extensionPresent: true, hostPresent: false, hostError });
