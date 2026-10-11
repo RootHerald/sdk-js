@@ -1,5 +1,5 @@
 /**
- * @rootherald/browser — the page-side RootHerald SDK (Client ABI 8.0).
+ * @rootherald/browser — the page-side RootHerald SDK (Client ABI 8.1).
  *
  * Orchestrates the KEYLESS client flow over the page <-> extension <-> native-host
  * bridge and hands opaque blobs to the EMBEDDER. The client verbs:
@@ -14,6 +14,8 @@
  *                                        -> `{ certification, key }`; the page keeps `key`.
  *   - `sign(key, data)`                — sign with a minted key; the private half stays
  *                                        in the TPM.
+ *   - `decrypt(envelope, { key })`     — open what the backend's `encryptToDevice` made;
+ *                                        the private half stays in the TPM.
  *   - `setUp(relay, { purpose })`      — enroll → attest → mint, chained.
  *   - PreCheck                         — `getClientStatus` / `getPosture` / detect helpers:
  *                                        local readiness SIGNALS, never a verdict.
@@ -47,6 +49,11 @@ export {
   type SignOptions,
   type SignResult,
 } from './sign.js';
+export {
+  decrypt,
+  type DecryptOptions,
+  type DecryptResult,
+} from './decrypt.js';
 export {
   setUp,
   type SetUpOptions,
@@ -92,6 +99,8 @@ export {
   NotEnrolledError,
   AskUnsupportedError,
   KeyUnloadableError,
+  InvalidArgumentError,
+  DecryptFailedError,
   AbiMismatchError,
   NotAttestedError,
 } from './errors.js';
@@ -110,6 +119,7 @@ export {
   ACTION_ATTEST,
   ACTION_MINT_KEY,
   ACTION_SIGN,
+  ACTION_DECRYPT,
   ACTION_STATUS,
   ACTION_POSTURE,
   ACTION_ENROLL_BEGIN,
@@ -126,6 +136,7 @@ export {
 export type {
   AkBlob,
   Ask,
+  DeviceEnvelope,
   EvidenceBlob,
   KeyBlob,
   KeyCertification,

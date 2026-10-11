@@ -1,6 +1,6 @@
 # @rootherald/browser
 
-The **page-side** RootHerald SDK (Client ABI 8.0). It orchestrates the
+The **page-side** RootHerald SDK (Client ABI 8.1). It orchestrates the
 **keyless** client flow over the page → extension → native-host bridge and hands
 **opaque blobs** to you (the embedder). Your backend relays those blobs to
 RootHerald with its `rh_sk_` secret (see [`@rootherald/node`](https://www.npmjs.com/package/@rootherald/node)).
@@ -30,6 +30,7 @@ page (@rootherald/browser) ──▶ extension ──▶ native host (TPM)
 | `attest(challenge, { ak })` | Answer a backend-issued challenge: a fresh TPM quote under the AK, plus the event log when the ask says so. | `{ evidence }` |
 | `mintKey(keyChallenge, { ak })` | Mint a device-bound key certified by the AK. | `{ certification, key }` |
 | `sign(key, data)` | Sign with a minted key. The private half stays in the TPM. | `{ alg, signature }` |
+| `decrypt(envelope, { key })` | Open what the backend encrypted to a minted decrypt key. The private half stays in the TPM. | `{ plaintext }` |
 | `setUp(relay, { purpose })` | `enroll` → `attest` → `mintKey`, chained. | `{ ak, key, verified }` |
 | `getClientStatus()` | **PreCheck** — is the extension there, is the host there. | `ClientStatus` |
 | `getPosture()` | **PreCheck** — the host's local posture signals. | `DevicePosture` |
@@ -40,7 +41,7 @@ PreCheck results are **readiness signals, never a verdict**.
 
 `enroll` returns the installation's AK blob; `mintKey` returns a key blob. The
 SDK stores nothing. Your page keeps both and passes `ak` to every `attest` and
-`mintKey`, and `key` to every `sign`. Measured on an Intel PTT: an ECC AK blob
+`mintKey`, and `key` to every `sign` or `decrypt`. Measured on an Intel PTT: an ECC AK blob
 is 90 + 128 bytes of public and private area, an RSA one 282 + 224; key blobs
 are the same order. Each blob is a credential: any code that can read it can
 use the key.
@@ -141,6 +142,28 @@ for an RSA one.
 
 A signature proves possession of the key, not how the machine booted.
 
+### `mintKey` + `decrypt`: a secret only this device can read
+
+```ts
+import { mintKey, decrypt } from '@rootherald/browser';
+
+// issueKeyChallenge({ purpose: 'decrypt', expectedDevices: [alias] }) on the backend.
+const { nonce, keyChallenge } = await fetch('/rh/key-challenge').then((r) => r.json());
+const { certification, key } = await mintKey(keyChallenge, { ak: load() });
+storeKey(key);
+await fetch('/rh/certify', { method: 'POST', body: JSON.stringify({ nonce, certification }) });
+
+// Later: the backend answers with encryptToDevice(key, token); only this
+// device's TPM opens it.
+const { envelope } = await fetch('/rh/session').then((r) => r.json());
+const { plaintext } = await decrypt(envelope, { key: loadKey() });
+const token = new TextDecoder().decode(plaintext);
+```
+
+`envelope` is the JWE compact string from `encryptToDevice`; `plaintext` is
+bytes. `DecryptFailedError` means the envelope was not made for this key or
+was altered; `InvalidArgumentError` means `key` is a sign key.
+
 ### `setUp(relay, { purpose })`: the three in one call
 
 ```ts
@@ -177,12 +200,15 @@ Every verb throws typed errors so a UI can route to the right fix:
 | `NotEnrolledError` | Host answered: `enroll-complete` without an `enroll-begin`. | `enroll()` runs both legs. |
 | `AskUnsupportedError` | Host answered: it cannot do what the ask names. | Issue a challenge with a smaller ask. |
 | `KeyUnloadableError` | Host answered: the blob will not load into this TPM. | AK: discard, `enroll()`, retry once. Key: mint a new one. |
+| `InvalidArgumentError` | Host answered: it refused an argument (`decrypt` with a sign key). | Pass the decrypt key. |
+| `DecryptFailedError` | Host answered: the envelope did not open with this key. | Encrypt to this key's JWK again. |
 | `AbiMismatchError` | The host reports an ABI major other than 8, or does not know the action. | Update the native host. |
 | `NotAttestedError` | `setUp`: the attest step did not pass. | Nothing was minted. |
 | `HostError` | Host answered with a code this SDK does not name (`.code`). | |
 
-`NotEnrolledError`, `AskUnsupportedError`, `KeyUnloadableError` and
-`AbiMismatchError` extend `HostError`, which carries the host's stable `code`;
+`NotEnrolledError`, `AskUnsupportedError`, `KeyUnloadableError`,
+`InvalidArgumentError`, `DecryptFailedError` and `AbiMismatchError` extend
+`HostError`, which carries the host's stable `code`;
 all extend `RootHeraldBrowserError`. The host prefixes its errors with
 `rh:<code>:<text>`; `parseHostError` is exported if you want the raw token.
 
@@ -192,7 +218,7 @@ or the field is missing.
 
 ## Timeouts
 
-`attest` 75 s, `mintKey` 75 s, `sign` 45 s, `getPosture` 45 s, `enroll` 135 s
+`attest` 75 s, `mintKey` 75 s, `sign` 45 s, `decrypt` 45 s, `getPosture` 45 s, `enroll` 135 s
 per host leg (it can block on a UAC prompt), detection probes 1.5 s. All are
 `timeoutMs` options. Each is above the extension's own per-action host
 timeout, so a slow host is reported by the extension. When a verb's own timer
@@ -233,13 +259,13 @@ const stop = onClientStatusChange((s) => {
 
 ## Exports
 
-`enroll`, `attest`, `mintKey`, `sign`, `setUp`, `getPosture`,
+`enroll`, `attest`, `mintKey`, `sign`, `decrypt`, `setUp`, `getPosture`,
 `getClientStatus`, `onClientStatusChange`, the detect helpers,
 `parseHostError`, `abiMajor`, the typed errors, `ROOTHERALD_EXTENSION_ID`,
 `HOST_ABI_MAJOR`, the wire message types and actions (`ACTION_ATTEST`,
-`ACTION_MINT_KEY`, `ACTION_SIGN`, `ACTION_POSTURE`, `ACTION_STATUS`,
+`ACTION_MINT_KEY`, `ACTION_SIGN`, `ACTION_DECRYPT`, `ACTION_POSTURE`, `ACTION_STATUS`,
 `ACTION_ENROLL_BEGIN`, `ACTION_ENROLL_COMPLETE`, `ACTION_PING`), and the
-contract types (`AkBlob`, `KeyBlob`, `Ask`, `EvidenceBlob`,
+contract types (`AkBlob`, `KeyBlob`, `DeviceEnvelope`, `Ask`, `EvidenceBlob`,
 `KeyCertification`, `KeyPurpose`, `EnrollRequestBlob`,
 `EnrollActivationChallenge`, `EnrollActivationResponse`, `RelayEnrollResult`,
 `RelayActivateResponse`) re-exported from `@rootherald/contracts`.

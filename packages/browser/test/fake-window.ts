@@ -1,7 +1,7 @@
 /**
  * A minimal fake `window` that simulates the RootHerald extension's content
  * script. Tests configure how it responds to each action, mirroring the real
- * Client ABI 8.0 postMessage wire (content-script / service-worker).
+ * Client ABI 8.1 postMessage wire (content-script / service-worker).
  */
 
 import type { MessageWindow } from '../src/transport.js';
@@ -42,6 +42,12 @@ export interface ExtensionBehavior {
   mintKeyHangs?: boolean;
   /** If true, `sign` never answers. */
   signHangs?: boolean;
+  /** base64url plaintext returned on a successful `decrypt`. */
+  plaintext?: unknown;
+  /** If true, `decrypt` never answers. */
+  decryptHangs?: boolean;
+  /** If true, `decrypt` succeeds but omits the plaintext. */
+  decryptNoPlaintext?: boolean;
   /** If true, `status` never answers (simulates a hung host probe). */
   statusHangs?: boolean;
   /** Enroll request blob returned on a successful `enroll-begin`. */
@@ -99,6 +105,7 @@ interface SeenRequest {
   akBlob?: unknown;
   keyBlob?: unknown;
   data?: unknown;
+  jwe?: unknown;
 }
 
 export class FakeWindow implements MessageWindow {
@@ -135,6 +142,7 @@ export class FakeWindow implements MessageWindow {
       akBlob: req.akBlob,
       keyBlob: req.keyBlob,
       data: req.data,
+      jwe: req.jwe,
     });
     queueMicrotask(() => this.respond(req));
   }
@@ -213,6 +221,13 @@ export class FakeWindow implements MessageWindow {
         : { signature: b.signature ?? 'c2ln' };
       if (b.alg !== null) data.alg = b.alg ?? 'ES256'; // null => the host omitted it
       this.ok(requestId, data);
+      return;
+    }
+
+    if (req.action === 'decrypt') {
+      if (b.decryptHangs) return;
+      if (b.hostPresent === false) return void this.hostFailure(requestId);
+      this.ok(requestId, b.decryptNoPlaintext ? {} : { plaintext: b.plaintext ?? 'aGVsbG8' });
       return;
     }
 

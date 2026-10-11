@@ -98,6 +98,29 @@ export class KeyUnloadableError extends HostError {
 }
 
 /**
+ * The host refused an argument (host code `1`): for `decrypt`, the blob is a
+ * sign key. The fix is in the page's code, not on the device.
+ */
+export class InvalidArgumentError extends HostError {
+  constructor(message = 'The host refused an argument: a sign key cannot decrypt') {
+    super('1', message);
+    this.name = 'InvalidArgumentError';
+  }
+}
+
+/**
+ * The envelope did not open with this key (host code `18`): it was encrypted
+ * to another key, altered in transit, or is not the one JWE shape the host
+ * accepts. The key itself loaded; encrypt again to this key's JWK.
+ */
+export class DecryptFailedError extends HostError {
+  constructor(message = 'The envelope did not open with this key') {
+    super('18', message);
+    this.name = 'DecryptFailedError';
+  }
+}
+
+/**
  * The installed host speaks a different client ABI than this SDK: the host
  * reported another major, said `abi_mismatch`, or does not know the action.
  * Update the native host.

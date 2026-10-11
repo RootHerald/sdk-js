@@ -2,6 +2,21 @@
 
 All notable changes to `@rootherald/browser` are documented here.
 
+## 0.1.0-alpha.21
+
+Client ABI 8.1: decrypt keys. Not published to npm.
+
+### Added
+
+- `decrypt(envelope, { key })` → `{ plaintext }`: open a JWE the backend's
+  `encryptToDevice` made, with a minted `decrypt` key; sends
+  `decrypt { keyBlob, jwe }` and reads the host's base64url `plaintext` as
+  bytes. Timeout 45 s.
+- `DecryptFailedError` (host code `18`: the envelope did not open with this
+  key) and `InvalidArgumentError` (host code `1`: the blob is a sign key),
+  both `HostError`s.
+- `ACTION_DECRYPT`; `DeviceEnvelope` re-exported from `@rootherald/contracts`.
+
 ## 0.1.0-alpha.20
 
 Client ABI 8.0. The page keeps the installation's AK blob and every key blob;
