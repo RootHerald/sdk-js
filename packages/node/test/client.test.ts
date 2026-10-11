@@ -4,6 +4,7 @@ import {
   ActivationRefusedError,
   AdmissionRefusedError,
   ChallengeError,
+  InvalidAskError,
   InvalidEvidenceError,
   InvalidSecretKeyError,
   QuotaExceededError,
@@ -12,7 +13,7 @@ import {
   UnknownPolicyError,
 } from "@rootherald/contracts/server";
 import { RootHeraldError } from "@rootherald/contracts";
-import type { AttestationVerdict } from "@rootherald/contracts";
+import type { AttestationVerdict, EnrollRequestBlob, KeyCertification } from "@rootherald/contracts";
 
 const SK = "rh_sk_test_abc123";
 const BASE = "https://api.example.test";
@@ -23,6 +24,28 @@ const CHALLENGE_WIRE = {
   nonce: NONCE,
   expiresAt: "2026-01-01T00:00:00Z",
   challenge: `rhc1.${NONCE}.eyJhc2siOlsiaWRlbnRpdHkiLCJwb3N0dXJlIl19`,
+};
+
+const KEY_CHALLENGE_WIRE = {
+  nonce: NONCE,
+  keyChallenge: `rhk1c.${NONCE}.eyJwdXJwb3NlIjoic2lnbiJ9`,
+  expiresAt: "2026-01-01T00:00:00Z",
+};
+
+const TPM_CERTIFICATION: KeyCertification = {
+  publicArea: "cHVi",
+  attest: "YXR0",
+  signature: "c2ln",
+};
+
+const CERTIFIED_EC_WIRE = {
+  deviceId: "alias-1",
+  keyId: "k-9f3a",
+  purpose: "sign",
+  alg: "ES256",
+  jwk: { kty: "EC", crv: "P-256", x: "eHh4", y: "eXl5" },
+  hardwareBound: true,
+  certifiedAt: "2026-06-30T00:01:00Z",
 };
 
 /** Builds a fetch mock that returns the given status/json for the next call. */
@@ -57,8 +80,6 @@ function sampleVerdict(): AttestationVerdict {
       quoteVerified: true,
       secureBootVerified: true,
     },
-    // raw is the JWT claim set; not asserted here.
-    raw: {} as AttestationVerdict["raw"],
   };
 }
 
@@ -78,11 +99,11 @@ describe("RootHeraldClient constructor", () => {
 });
 
 describe("issueChallenge", () => {
-  it("sends the C1 request (URL, Bearer header, body) and returns the whole response", async () => {
+  it("sends the challenge request (URL, Bearer header, body) and returns the whole response", async () => {
     const fetchMock = mockFetch(200, CHALLENGE_WIRE);
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
-    const out = await rh.issueChallenge({ deviceHint: "laptop-7" });
+    const out = await rh.issueChallenge({ ask: ["identity"] });
 
     expect(out).toEqual(CHALLENGE_WIRE);
 
@@ -91,7 +112,7 @@ describe("issueChallenge", () => {
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     expect(init.headers["Content-Type"]).toBe("application/json");
-    expect(JSON.parse(init.body)).toEqual({ deviceHint: "laptop-7" });
+    expect(JSON.parse(init.body)).toEqual({ ask: ["identity"] });
   });
 
   it("sends an empty body when no options are given (ask defaults server-side)", async () => {
@@ -103,19 +124,39 @@ describe("issueChallenge", () => {
     expect(JSON.parse(init.body)).toEqual({});
   });
 
-  it("sends ask and keyPurpose, and never a policy", async () => {
+  it("sends ask, expectedKey and expectedDevices, and never keyPurpose, deviceHint or policy", async () => {
     const fetchMock = mockFetch(200, CHALLENGE_WIRE);
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
     await rh.issueChallenge({
-      ask: ["identity", "key"],
-      keyPurpose: "sign",
+      ask: ["identity", "posture"],
+      expectedKey: "k-9f3a",
+      expectedDevices: ["alias-1", "alias-2"],
+      ...({ keyPurpose: "sign", deviceHint: "laptop-7" } as object),
     });
 
     const [, init] = calls(fetchMock)[0];
     const body = JSON.parse(init.body);
-    expect(body).toEqual({ ask: ["identity", "key"], keyPurpose: "sign" });
+    expect(body).toEqual({
+      ask: ["identity", "posture"],
+      expectedKey: "k-9f3a",
+      expectedDevices: ["alias-1", "alias-2"],
+    });
     expect("policy" in body).toBe(false);
+  });
+
+  it.each([
+    ["empty expectedKey", { expectedKey: "" }],
+    ["empty expectedDevices", { expectedDevices: [] }],
+    ["non-string alias", { expectedDevices: [42] }],
+    ["empty alias", { expectedDevices: ["a", ""] }],
+  ])("refuses %s before any fetch", async (_name, opts) => {
+    const fetchMock = mockFetch(200, CHALLENGE_WIRE);
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.issueChallenge(opts as never).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldError);
+    expect((err as RootHeraldError).code).toBe("INVALID_ARGUMENT");
+    expect(calls(fetchMock).length).toBe(0);
   });
 
   it("returns the challenge string verbatim", async () => {
@@ -162,11 +203,11 @@ describe("issueChallenge", () => {
 });
 
 describe("verify", () => {
-  it("sends the C2 request shape with evidence passed through verbatim", async () => {
+  it("sends the verify request shape with evidence passed through verbatim", async () => {
     const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
-    const evidence = { quote: "AAAA", sig: "BBBB", pcrs: [1, 2, 3], nested: { x: true } };
+    const evidence = { quote: "AAAA", sig: "BBBB", pcrs: [1, 2, 3], logs: { srtm: "bG9n" } };
     await rh.verify(evidence, { nonce: NONCE });
 
     const [url, init] = calls(fetchMock)[0];
@@ -177,6 +218,14 @@ describe("verify", () => {
     expect("challengeId" in body).toBe(false);
     expect("policy" in body).toBe(false);
     expect(body.evidence).toEqual(evidence); // verbatim pass-through
+  });
+
+  it("never sends expectedKey or expectedDevices to the server; they are compared locally", async () => {
+    const verdict = { ...sampleVerdict(), expected: { key: "k-1", devices: ["device-uuid-1234"] } };
+    const fetchMock = mockFetch(200, { verdict });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    await rh.verify({ blob: 1 }, { nonce: NONCE, expectedKey: "k-1", expectedDevices: ["device-uuid-1234"] });
+    expect(JSON.parse(calls(fetchMock)[0][1].body)).toEqual({ nonce: NONCE, evidence: { blob: 1 } });
   });
 
   it("returns the parsed verdict", async () => {
@@ -216,24 +265,63 @@ describe("verify", () => {
     expect((err as RootHeraldError).code).toBe("MISSING_NONCE");
   });
 
-  it("passes cohort fields on verdict.device through verbatim", async () => {
+  it("passes every DeviceVerdictDto field through without a cast (#402)", async () => {
     const verdict = sampleVerdict();
-    verdict.device.cohortKey = "tpm20:win11:sb1:abc123";
-    verdict.device.cohortScope = "tenant-fleet";
-    verdict.device.cohortPrevalence = 0.042;
-    verdict.device.cohortPrevalencePerPcr = { "0": 0.9, "7": 0.5 };
-    verdict.device.cohortSampleSize = 1287;
-    verdict.device.novelProfile = false;
+    Object.assign(verdict.device, {
+      disclosureClass: "derived",
+      tpmKind: "firmware-tpm",
+      postureEvaluated: true,
+      hardwareGenuine: true,
+      ekChainTrusted: true,
+      sybilRisk: "none",
+      sybilResistance: "distinct-silicon-rotatable",
+      returningDevice: true,
+      identityAgeBucket: "under-90d",
+      accountBindingBand: "1",
+      identityFirstSeen: "2026-05-01T00:00:00Z",
+      attestationCount: 12,
+      accountBindingCount: 1,
+      possiblyRotated: false,
+      platformRotated: false,
+      bootChanged: true,
+      bootChangedStages: [7],
+      bootChangeAccepted: false,
+      bootBaselineAt: "2026-05-02T00:00:00Z",
+      cohortKey: "tpm20:win11:sb1:abc123",
+      cohortScope: "tenant-fleet",
+      cohortPrevalence: 0.042,
+      cohortPrevalencePerPcr: { "0": 0.9, "7": 0.5 },
+      cohortSampleSize: 1287,
+      novelProfile: false,
+    });
     const fetchMock = mockFetch(200, { verdict });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
     const out = await rh.verify({ blob: 1 }, { nonce: NONCE });
+    const tpmKind: string | undefined = out.device.tpmKind;
+    const stages: number[] | undefined = out.device.bootChangedStages;
+    expect(tpmKind).toBe("firmware-tpm");
+    expect(stages).toEqual([7]);
+    expect(out.device.disclosureClass).toBe("derived");
+    expect(out.device.sybilResistance).toBe("distinct-silicon-rotatable");
+    expect(out.device.identityFirstSeen).toBeInstanceOf(Date);
+    expect(out.device.identityFirstSeen!.getTime()).toBe(Date.parse("2026-05-01T00:00:00Z"));
+    expect(out.device.bootBaselineAt).toBeInstanceOf(Date);
     expect(out.device.cohortKey).toBe("tpm20:win11:sb1:abc123");
-    expect(out.device.cohortScope).toBe("tenant-fleet");
-    expect(out.device.cohortPrevalence).toBe(0.042);
     expect(out.device.cohortPrevalencePerPcr).toEqual({ "0": 0.9, "7": 0.5 });
-    expect(out.device.cohortSampleSize).toBe(1287);
     expect(out.device.novelProfile).toBe(false);
+  });
+
+  it("accepts a verdict-class response with no ueid and no userId", async () => {
+    const verdict = sampleVerdict();
+    delete verdict.device.ueid;
+    delete verdict.userId;
+    verdict.device.disclosureClass = "verdict";
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+    const out = await rh.verify({ blob: 1 }, { nonce: NONCE });
+    expect(out.device.ueid).toBeUndefined();
+    expect(out.userId).toBeUndefined();
+    expect(out.device.verdict).toBe("pass");
   });
 
   it("parses ISO-8601 string dates from the REAL response shape into Date objects", async () => {
@@ -256,7 +344,6 @@ describe("verify", () => {
         quoteVerified: true,
         secureBootVerified: true,
       },
-      raw: {},
     };
     const fetchMock = mockFetch(200, { verdict: wireVerdict });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
@@ -320,6 +407,7 @@ describe("verify", () => {
     ["issuedAt garbage", { authTime: "garbage" }, "verdict.authTime"],
     ["expiresAt missing", { expiresAt: undefined }, "verdict.expiresAt"],
     ["attestedAt object", { device: { ...JSON.parse(JSON.stringify(sampleVerdict())).device, attestedAt: {} } }, "verdict.device.attestedAt"],
+    ["identityFirstSeen garbage", { device: { ...JSON.parse(JSON.stringify(sampleVerdict())).device, identityFirstSeen: "garbage" } }, "verdict.device.identityFirstSeen"],
   ])("refuses an unparseable timestamp (%s) instead of returning Invalid Date", async (_name, patch, field) => {
     const wire = { ...JSON.parse(JSON.stringify(sampleVerdict())), ...patch };
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: wire }) });
@@ -362,7 +450,7 @@ describe("verify", () => {
     expect("requestedDisclosureClass" in JSON.parse(init.body)).toBe(false);
   });
 
-  // ── assuranceClaimsMet / enrollmentRequired / key come from the response ROOT ──
+  // ── assuranceClaimsMet / enrollmentRequired come from the response ROOT ──
   it("surfaces assuranceClaimsMet + enrollmentRequired from the response root", async () => {
     const fetchMock = mockFetch(200, {
       verdict: sampleVerdict(),
@@ -385,7 +473,7 @@ describe("verify", () => {
       ...sampleVerdict(),
       assuranceClaimsMet: ["NESTED-should-be-ignored"],
       enrollmentRequired: false,
-      key: { keyId: "NESTED", jwk: { kty: "EC", crv: "P-256", x: "x", y: "y" }, purpose: "sign", certifiedAt: "2026-01-01T00:00:00Z" },
+      key: { keyId: "NESTED" },
     };
     const fetchMock = mockFetch(200, {
       verdict: verdictWithDecoys,
@@ -398,11 +486,10 @@ describe("verify", () => {
 
     expect(out.assuranceClaimsMet).toEqual(["root-claim"]);
     expect(out.enrollmentRequired).toBe(true);
-    // The root sent no key, so there is none — the nested decoy is not it.
-    expect(out.key).toBeUndefined();
+    expect("key" in out).toBe(false);
   });
 
-  it("omits assuranceClaimsMet + enrollmentRequired + key when the root does not send them", async () => {
+  it("omits assuranceClaimsMet + enrollmentRequired when the root does not send them", async () => {
     const fetchMock = mockFetch(200, { verdict: sampleVerdict() });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
@@ -410,42 +497,234 @@ describe("verify", () => {
 
     expect(out.assuranceClaimsMet).toBeUndefined();
     expect(out.enrollmentRequired).toBeUndefined();
-    expect(out.key).toBeUndefined();
   });
 
-  it("parses the certified key from the response root, with certifiedAt as a Date", async () => {
-    const fetchMock = mockFetch(200, {
-      verdict: sampleVerdict(),
-      key: {
-        keyId: "k-9f3a",
-        jwk: { kty: "EC", crv: "P-256", x: "eHh4", y: "eXl5" },
-        purpose: "sign",
-        authPolicy: "cG9saWN5",
-        certifiedAt: "2026-06-30T00:01:00Z",
-      },
-    });
+  it("never surfaces a key from the verify response; keys come from certifyKey", async () => {
+    const fetchMock = mockFetch(200, { verdict: sampleVerdict(), key: CERTIFIED_EC_WIRE });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-
     const out = await rh.verify({ blob: 1 }, { nonce: NONCE });
-
-    expect(out.key).toBeDefined();
-    expect(out.key!.keyId).toBe("k-9f3a");
-    expect(out.key!.jwk).toEqual({ kty: "EC", crv: "P-256", x: "eHh4", y: "eXl5" });
-    expect(out.key!.purpose).toBe("sign");
-    expect(out.key!.authPolicy).toBe("cG9saWN5");
-    expect(out.key!.certifiedAt).toBeInstanceOf(Date);
-    expect(out.key!.certifiedAt.getTime()).toBe(Date.parse("2026-06-30T00:01:00Z"));
+    expect("key" in out).toBe(false);
   });
 
-  it("drops a malformed key block rather than surfacing it half-parsed", async () => {
-    const fetchMock = mockFetch(200, {
-      verdict: sampleVerdict(),
-      key: { keyId: "k-1", jwk: { kty: "RSA", n: "…", e: "AQAB" }, purpose: "sign", certifiedAt: "2026-06-30T00:01:00Z" },
+  // ── expectedKey / expectedDevices must be echoed back ────────────────────
+  describe("expected binding", () => {
+    it("accepts a verdict that echoes the expectedKey and expectedDevices it was asked for", async () => {
+      const verdict = { ...sampleVerdict(), expected: { key: "k-1", devices: ["device-uuid-1234", "other"] } };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      const out = await rh.verify({ blob: 1 }, {
+        nonce: NONCE,
+        expectedKey: "k-1",
+        expectedDevices: ["other", "device-uuid-1234"],
+      });
+      expect(out.expected).toEqual({ key: "k-1", devices: ["device-uuid-1234", "other"] });
     });
+
+    it("compares aliases case-insensitively: the server echoes lowercase whatever spelling was asked", async () => {
+      const verdict = { ...sampleVerdict(), expected: { devices: ["device-uuid-1234", "other"] } };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      const out = await rh.verify({ blob: 1 }, {
+        nonce: NONCE,
+        expectedDevices: ["OTHER", " DEVICE-UUID-1234 "],
+      });
+      expect(out.expected).toEqual({ devices: ["device-uuid-1234", "other"] });
+    });
+
+    it("refuses a verdict with no `expected` block when expectedKey was asked for", async () => {
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: sampleVerdict() }) });
+      const err = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedKey: "k-1" }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RootHeraldApiError);
+      expect((err as RootHeraldApiError).code).toBe("EXPECTED_NOT_ENFORCED");
+    });
+
+    it("refuses a verdict that echoes a different expectedKey", async () => {
+      const verdict = { ...sampleVerdict(), expected: { key: "k-2" } };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      const err = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedKey: "k-1" }).catch((e: unknown) => e);
+      expect((err as RootHeraldApiError).code).toBe("EXPECTED_NOT_ENFORCED");
+    });
+
+    it("refuses a verdict that echoes a different device set", async () => {
+      const verdict = { ...sampleVerdict(), expected: { devices: ["device-uuid-1234"] } };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      const err = await rh
+        .verify({ blob: 1 }, { nonce: NONCE, expectedDevices: ["device-uuid-1234", "other"] })
+        .catch((e: unknown) => e);
+      expect((err as RootHeraldApiError).code).toBe("EXPECTED_NOT_ENFORCED");
+    });
+
+    it("refuses a passing verdict naming a device outside expectedDevices, even when echoed", async () => {
+      const verdict = { ...sampleVerdict(), expected: { devices: ["other"] } };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      const err = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedDevices: ["other"] }).catch((e: unknown) => e);
+      expect((err as RootHeraldApiError).code).toBe("EXPECTED_NOT_ENFORCED");
+    });
+
+    it("returns a failing verdict for another device (expected_device_mismatch) as a normal verdict", async () => {
+      const verdict = sampleVerdict();
+      verdict.device.verdict = "fail";
+      verdict.device.earStatus = "contraindicated";
+      Object.assign(verdict, { expected: { devices: ["other"] } });
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      const out = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedDevices: ["other"] });
+      expect(out.device.verdict).toBe("fail");
+    });
+
+    it("does not compare when the caller passed no expectation", async () => {
+      const verdict = { ...sampleVerdict(), expected: { key: "k-9" } };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      await expect(rh.verify({ blob: 1 }, { nonce: NONCE })).resolves.toBeDefined();
+    });
+  });
+});
+
+describe("issueKeyChallenge", () => {
+  it("posts purpose and expectedDevices to /api/v1/keys/challenge and returns the whole response", async () => {
+    const fetchMock = mockFetch(200, { ...KEY_CHALLENGE_WIRE, extra: "dropped" });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
-    const out = await rh.verify({ blob: 1 }, { nonce: NONCE });
-    expect(out.key).toBeUndefined();
+    const out = await rh.issueKeyChallenge({ purpose: "sign", expectedDevices: ["alias-1"] });
+
+    expect(out).toEqual(KEY_CHALLENGE_WIRE);
+    const [url, init] = calls(fetchMock)[0];
+    expect(url).toBe(`${BASE}/api/v1/keys/challenge`);
+    expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
+    expect(JSON.parse(init.body)).toEqual({ purpose: "sign", expectedDevices: ["alias-1"] });
+  });
+
+  it("omits expectedDevices when not given", async () => {
+    const fetchMock = mockFetch(200, KEY_CHALLENGE_WIRE);
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    await rh.issueKeyChallenge({ purpose: "sign" });
+    expect(JSON.parse(calls(fetchMock)[0][1].body)).toEqual({ purpose: "sign" });
+  });
+
+  it("refuses an unknown purpose or an empty expectedDevices before any fetch", async () => {
+    const fetchMock = mockFetch(200, KEY_CHALLENGE_WIRE);
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const bad = await rh.issueKeyChallenge({ purpose: "wrap" as never }).catch((e: unknown) => e);
+    expect((bad as RootHeraldError).code).toBe("INVALID_ARGUMENT");
+    const empty = await rh.issueKeyChallenge({ purpose: "sign", expectedDevices: [] }).catch((e: unknown) => e);
+    expect((empty as RootHeraldError).code).toBe("INVALID_ARGUMENT");
+    expect(calls(fetchMock).length).toBe(0);
+  });
+
+  it("rejects a response without the keyChallenge string", async () => {
+    const { keyChallenge: _omitted, ...without } = KEY_CHALLENGE_WIRE;
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, without) });
+    const err = await rh.issueKeyChallenge({ purpose: "sign" }).catch((e: unknown) => e);
+    expect((err as RootHeraldApiError).code).toBe("INVALID_RESPONSE");
+  });
+
+  it("keeps a 422 key_disclosure_too_low generic, with the code preserved", async () => {
+    const rh = new RootHeraldClient({
+      secretKey: SK,
+      baseUrl: BASE,
+      fetch: mockFetch(422, { error: "key_disclosure_too_low", message: "ceiling below pseudonymous" }),
+    });
+    const err = await rh.issueKeyChallenge({ purpose: "sign" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect(err).not.toBeInstanceOf(UnknownPolicyError);
+    expect((err as RootHeraldApiError).errorCode).toBe("key_disclosure_too_low");
+  });
+});
+
+describe("certifyKey", () => {
+  it("posts { nonce, certification } verbatim to /api/v1/keys/certify", async () => {
+    const fetchMock = mockFetch(200, CERTIFIED_EC_WIRE);
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+
+    const certification = { ...TPM_CERTIFICATION, futureField: { nested: [1] } } as unknown as KeyCertification;
+    await rh.certifyKey(NONCE, certification);
+
+    const [url, init] = calls(fetchMock)[0];
+    expect(url).toBe(`${BASE}/api/v1/keys/certify`);
+    expect(JSON.parse(init.body)).toEqual({ nonce: NONCE, certification });
+  });
+
+  it("parses an EC key, with certifiedAt as a Date", async () => {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, CERTIFIED_EC_WIRE) });
+    const key = await rh.certifyKey(NONCE, TPM_CERTIFICATION);
+    expect(key.deviceId).toBe("alias-1");
+    expect(key.keyId).toBe("k-9f3a");
+    expect(key.purpose).toBe("sign");
+    expect(key.alg).toBe("ES256");
+    expect(key.jwk).toEqual({ kty: "EC", crv: "P-256", x: "eHh4", y: "eXl5" });
+    expect(key.hardwareBound).toBe(true);
+    expect(key.format).toBeUndefined();
+    expect(key.certifiedAt).toBeInstanceOf(Date);
+    expect(key.certifiedAt.getTime()).toBe(Date.parse("2026-06-30T00:01:00Z"));
+  });
+
+  it("parses an RSA key", async () => {
+    const wire = { ...CERTIFIED_EC_WIRE, alg: "RS256", jwk: { kty: "RSA", n: "bW9k", e: "AQAB" } };
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, wire) });
+    const key = await rh.certifyKey(NONCE, TPM_CERTIFICATION);
+    expect(key.alg).toBe("RS256");
+    expect(key.jwk).toEqual({ kty: "RSA", n: "bW9k", e: "AQAB" });
+  });
+
+  it("parses a decrypt key with its format", async () => {
+    const wire = { ...CERTIFIED_EC_WIRE, purpose: "decrypt", alg: "ECDH-ES", format: "jwe" };
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, wire) });
+    const key = await rh.certifyKey(NONCE, TPM_CERTIFICATION);
+    expect(key.purpose).toBe("decrypt");
+    expect(key.alg).toBe("ECDH-ES");
+    expect(key.format).toBe("jwe");
+  });
+
+  it("relays the macOS and iOS certification forms", async () => {
+    const fetchMock = mockFetch(200, { ...CERTIFIED_EC_WIRE, hardwareBound: false });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const mac: KeyCertification = { platform: "macos", publicKey: "cGs", signature: "c2ln" };
+    const key = await rh.certifyKey(NONCE, mac);
+    expect(key.hardwareBound).toBe(false);
+    expect(JSON.parse(calls(fetchMock)[0][1].body).certification).toEqual(mac);
+    const ios: KeyCertification = { platform: "ios", keyId: "a2lk", assertion: "YXNu" };
+    await rh.certifyKey(NONCE, ios);
+    expect(JSON.parse(calls(fetchMock)[1][1].body).certification).toEqual(ios);
+  });
+
+  it.each([
+    ["missing deviceId", { deviceId: undefined }],
+    ["missing keyId", { keyId: "" }],
+    ["unknown purpose", { purpose: "wrap" }],
+    ["missing hardwareBound", { hardwareBound: undefined }],
+    ["garbage certifiedAt", { certifiedAt: "garbage" }],
+    ["RSA jwk under ES256", { jwk: { kty: "RSA", n: "bW9k", e: "AQAB" } }],
+    ["EC jwk under RS256", { alg: "RS256" }],
+    ["P-384 jwk", { jwk: { kty: "EC", crv: "P-384", x: "eA", y: "eQ" } }],
+    ["unknown format", { format: "cms" }],
+  ])("refuses a malformed certify response (%s) with INVALID_RESPONSE", async (_name, patch) => {
+    const wire = { ...CERTIFIED_EC_WIRE, ...patch };
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, wire) });
+    const err = await rh.certifyKey(NONCE, TPM_CERTIFICATION).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect((err as RootHeraldApiError).code).toBe("INVALID_RESPONSE");
+  });
+
+  it("throws MISSING_NONCE / INVALID_CERTIFICATION before any fetch", async () => {
+    const fetchMock = mockFetch(200, CERTIFIED_EC_WIRE);
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const noNonce = await rh.certifyKey("", TPM_CERTIFICATION).catch((e: unknown) => e);
+    expect((noNonce as RootHeraldError).code).toBe("MISSING_NONCE");
+    const bad = await rh.certifyKey(NONCE, { publicArea: "x" } as never).catch((e: unknown) => e);
+    expect((bad as RootHeraldError).code).toBe("INVALID_CERTIFICATION");
+    const notObject = await rh.certifyKey(NONCE, "cert" as never).catch((e: unknown) => e);
+    expect((notObject as RootHeraldError).code).toBe("INVALID_CERTIFICATION");
+    expect(calls(fetchMock).length).toBe(0);
+  });
+
+  it("keeps a 409 key_rotation_conflict generic, with the code preserved, not ChallengeError", async () => {
+    const rh = new RootHeraldClient({
+      secretKey: SK,
+      baseUrl: BASE,
+      fetch: mockFetch(409, { error: "key_rotation_conflict", message: "rotation in flight" }),
+    });
+    const err = await rh.certifyKey(NONCE, TPM_CERTIFICATION).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldApiError);
+    expect(err).not.toBeInstanceOf(ChallengeError);
+    expect((err as RootHeraldApiError).status).toBe(409);
+    expect((err as RootHeraldApiError).errorCode).toBe("key_rotation_conflict");
   });
 });
 
@@ -457,7 +736,12 @@ describe("error mapping", () => {
     [422, "admission_refused", AdmissionRefusedError],
     [409, "challenge_expired_or_used", ChallengeError],
     [400, "invalid_evidence", InvalidEvidenceError],
-    [429, "quota_exceeded", QuotaExceededError],
+    [400, "wire_version_unsupported", InvalidEvidenceError],
+    [400, "invalid_enroll_shape", InvalidEvidenceError],
+    [400, "invalid_ask", InvalidAskError],
+    [400, "invalid_purpose", InvalidAskError],
+    [400, "invalid_certification", InvalidEvidenceError],
+    [429, "budget_exhausted", QuotaExceededError],
     [429, "rate_limited", RateLimitedError],
   ];
 
@@ -477,6 +761,40 @@ describe("error mapping", () => {
     });
   }
 
+  it("maps invalid_ask to InvalidAskError, not the device-failure class", async () => {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(400, { error: "invalid_ask" }) });
+    const err = await rh.issueChallenge({ ask: ["key" as never] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidAskError);
+    expect(err).not.toBeInstanceOf(InvalidEvidenceError);
+  });
+
+  it("maps invalid_purpose from issueKeyChallenge to InvalidAskError, not the device-failure class", async () => {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(400, { error: "invalid_purpose" }) });
+    const err = await rh.issueKeyChallenge({ purpose: "sign" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidAskError);
+    expect(err).not.toBeInstanceOf(InvalidEvidenceError);
+    expect((err as RootHeraldApiError).errorCode).toBe("invalid_purpose");
+  });
+
+  for (const [status, errorCode] of [
+    [422, "certification_rejected"],
+    [422, "key_disclosure_too_low"],
+    [422, "expected_unknown"],
+    [422, "purpose_unsupported"],
+    [409, "key_rotation_conflict"],
+  ] as const) {
+    it(`keeps ${status} ${errorCode} a plain RootHeraldApiError with the code`, async () => {
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(status, { error: errorCode }) });
+      const err = await rh.certifyKey(NONCE, { publicArea: "AA==", attest: "AA==", signature: "AA==" }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RootHeraldApiError);
+      expect(err).not.toBeInstanceOf(UnknownPolicyError);
+      expect(err).not.toBeInstanceOf(ChallengeError);
+      expect((err as RootHeraldApiError).constructor).toBe(RootHeraldApiError);
+      expect((err as RootHeraldApiError).status).toBe(status);
+      expect((err as RootHeraldApiError).errorCode).toBe(errorCode);
+    });
+  }
+
   it("maps a 422 with no body code to UnknownPolicyError", async () => {
     const fetchMock = mockFetch(422, {});
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
@@ -484,15 +802,15 @@ describe("error mapping", () => {
     expect(err).toBeInstanceOf(UnknownPolicyError);
   });
 
-  it("keeps a 422 posture_not_bound generic, with the code preserved", async () => {
-    const fetchMock = mockFetch(422, { error: "posture_not_bound", message: "no posture policy" });
+  it.each(["posture_not_bound", "expected_unknown"])("keeps a 422 %s generic, with the code preserved", async (code) => {
+    const fetchMock = mockFetch(422, { error: code, message: "detail" });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     const err = await rh.issueChallenge({ ask: ["posture"] }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RootHeraldApiError);
     expect(err).not.toBeInstanceOf(UnknownPolicyError);
     expect((err as RootHeraldApiError).status).toBe(422);
-    expect((err as RootHeraldApiError).errorCode).toBe("posture_not_bound");
-    expect((err as Error).message).toBe("no posture policy");
+    expect((err as RootHeraldApiError).errorCode).toBe(code);
+    expect((err as Error).message).toBe("detail");
   });
 
   it("keeps a 402 plan_lapsed generic, with the code preserved", async () => {
@@ -555,10 +873,24 @@ describe("error mapping", () => {
   });
 
   it("maps a 429 carrying X-RootHerald-Quota to QuotaExceededError whatever the body says", async () => {
-    const fetchMock = mockFetch(429, {}, { "X-RootHerald-Quota": "device-limit-exceeded" });
+    const fetchMock = mockFetch(429, {}, { "X-RootHerald-Quota": "budget-exhausted" });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
     const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(QuotaExceededError);
+    expect((err as QuotaExceededError).budget).toBeUndefined();
+  });
+
+  it("surfaces the refusing budget on a 429 budget_exhausted (#377)", async () => {
+    const fetchMock = mockFetch(429, {
+      error: "budget_exhausted",
+      message: "budget exhausted",
+      budget: { id: "bud_1", name: "Production" },
+    });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    const err = await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QuotaExceededError);
+    expect((err as QuotaExceededError).budget).toEqual({ id: "bud_1", name: "Production" });
+    expect((err as QuotaExceededError).budget!.name).toBe("Production");
   });
 
   it("carries the server's detail as the message on admission_refused", async () => {
@@ -585,10 +917,14 @@ describe("error mapping", () => {
 
 // ── Enroll relay: relayEnroll / relayActivate ──────────────────────────────
 describe("relayEnroll", () => {
-  const enrollBlob = {
-    ekPublicKey: "<base64 ekpub>",
-    akPublicArea: "<base64 ak pub area>",
-    platform: "windows" as const,
+  const enrollBlob: EnrollRequestBlob = {
+    ekPublicKey: "<base64 TPM2B_PUBLIC>",
+    attestationKey: {
+      publicArea: "<base64 ak pub area>",
+      parentPublicArea: "<base64 parent pub area>",
+      qualifiedName: "<base64 name>",
+    },
+    platform: "windows",
     ekCertPem: "-----BEGIN CERTIFICATE-----\n...",
     tpmSelfReport: { manufacturer: "INTC", vendorString: "Intel" },
   };
@@ -615,17 +951,32 @@ describe("relayEnroll", () => {
     expect(JSON.parse(init.body)).toEqual(enrollBlob); // relayed verbatim
   });
 
-  it("201 returns the macOS challenge body (enrollmentId + challengeNonce)", async () => {
+  it("relays the enroll body verbatim, unknown fields included", async () => {
+    const blob = {
+      ekPublicKey: "ZWs=",
+      platform: "linux",
+      attestationKey: { publicArea: "YWs=", parentPublicArea: "cGE=", qualifiedName: "cW4=", futureSub: true },
+      futureField: { nested: [1, { x: "y" }] },
+    };
+    const fetchMock = mockFetch(201, tpmChallenge);
+    await new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock })
+      .relayEnroll(blob as unknown as EnrollRequestBlob);
+    expect(JSON.parse(calls(fetchMock)[0][1].body)).toEqual(blob);
+  });
+
+  it("201 returns the macOS challenge body for the flat enclave body (enrollmentId + challengeNonce)", async () => {
     const macChallenge = { enrollmentId: "enr-uuid-2", challengeNonce: "<base64 nonce>" };
     const fetchMock = mockFetch(201, macChallenge);
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
 
-    const out = await rh.relayEnroll({
+    const macBlob: EnrollRequestBlob = {
       ekPublicKey: "<base64 P-256>",
       akPublicArea: "<base64 P-256>",
       platform: "macos",
-    });
+    };
+    const out = await rh.relayEnroll(macBlob);
     expect(out).toEqual({ challenge: macChallenge });
+    expect(JSON.parse(calls(fetchMock)[0][1].body)).toEqual(macBlob);
   });
 
   it("accepts an empty 201 for an iOS blob and returns an empty challenge", async () => {
@@ -662,6 +1013,15 @@ describe("relayEnroll", () => {
     expect((err as RootHeraldApiError).errorCode).toBe("admission_refused");
   });
 
+  it("maps 400 wire_version_unsupported and invalid_enroll_shape to InvalidEvidenceError with the code", async () => {
+    for (const code of ["wire_version_unsupported", "invalid_enroll_shape"]) {
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(400, { error: code }) });
+      const err = await rh.relayEnroll(enrollBlob).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(InvalidEvidenceError);
+      expect((err as RootHeraldApiError).errorCode).toBe(code);
+    }
+  });
+
   it("throws INVALID_RESPONSE when a 201 has an enrollmentId but no credential material", async () => {
     const fetchMock = mockFetch(201, { enrollmentId: "enr-1" });
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
@@ -685,19 +1045,19 @@ describe("relayEnroll", () => {
     expect(err).toBeInstanceOf(InvalidSecretKeyError);
   });
 
-  it("throws before any fetch when the enroll blob is malformed", async () => {
+  it.each([
+    ["no fields", { platform: "windows" }],
+    ["a flat 7.0 TPM body", { ekPublicKey: "e", akPublicArea: "a", platform: "windows" }],
+    ["both shapes at once", { ekPublicKey: "e", akPublicArea: "a", attestationKey: { publicArea: "p", parentPublicArea: "q", qualifiedName: "n" }, platform: "linux" }],
+    ["an AK without its parent", { ekPublicKey: "e", attestationKey: { publicArea: "p" }, platform: "linux" }],
+    ["a macOS body carrying attestationKey", { ekPublicKey: "e", akPublicArea: "a", attestationKey: { publicArea: "p", parentPublicArea: "q", qualifiedName: "n" }, platform: "macos" }],
+    ["an iOS blob without its nonce", { platform: "ios", iosKeyId: "k", iosAttestationObject: "a" }],
+    ["an unknown platform", { ekPublicKey: "e", akPublicArea: "a", platform: "android" }],
+  ])("throws INVALID_ENROLL_BLOB before any fetch for %s", async (_name, blob) => {
     const fetchMock = mockFetch(201, {});
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-    // @ts-expect-error intentionally missing required fields
-    await expect(rh.relayEnroll({ platform: "windows" })).rejects.toThrow(RootHeraldError);
-    expect(calls(fetchMock).length).toBe(0);
-  });
-
-  it("throws before any fetch when an iOS blob lacks its nonce", async () => {
-    const fetchMock = mockFetch(201, {});
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-    const bad = { platform: "ios", iosKeyId: "k", iosAttestationObject: "a" } as never;
-    const err = await rh.relayEnroll(bad).catch((e: unknown) => e);
+    const err = await rh.relayEnroll(blob as never).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RootHeraldError);
     expect((err as RootHeraldError).code).toBe("INVALID_ENROLL_BLOB");
     expect(calls(fetchMock).length).toBe(0);
   });
@@ -728,6 +1088,14 @@ describe("relayActivate", () => {
     expect(url).toBe(`${BASE}/api/v1/attest/activate`);
     expect(init.headers.Authorization).toBe(`Bearer ${SK}`);
     expect(JSON.parse(init.body)).toEqual(activateBlob); // relayed verbatim
+  });
+
+  it("relays the activation body verbatim, unknown fields included", async () => {
+    const blob = { ...activateBlob, futureField: { nested: true } };
+    const fetchMock = mockFetch(200, { deviceId: "dev-uuid-1" });
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
+    await rh.relayActivate(blob);
+    expect(JSON.parse(calls(fetchMock)[0][1].body)).toEqual(blob);
   });
 
   it("accepts a macOS activation (enrollmentId + signature)", async () => {
@@ -792,90 +1160,11 @@ describe("relayActivate", () => {
   });
 });
 
-describe("relayMobileEnrollment (mobile bridge)", () => {
-  const enrollment = {
-    platform: "ios" as const,
-    iosKeyId: "b64key",
-    iosAttestationObject: "b64cbor",
-    nonce: NONCE,
-  };
-
-  it("relays the enrollment when the envelope nonce matches the blob's", async () => {
-    const fetchMock = mockFetch(201, {});
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-    const out = await rh.relayMobileEnrollment({ nonce: NONCE, enrollment });
-    expect(out).toEqual({ challenge: {} });
-    const [url, init] = calls(fetchMock)[0];
-    expect(url).toBe(`${BASE}/api/v1/attest/enroll`);
-    expect(JSON.parse(init.body)).toEqual(enrollment);
-  });
-
-  it("refuses an envelope nonce that differs from the blob's before any fetch", async () => {
-    const fetchMock = mockFetch(201, {});
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-    const err = await rh
-      .relayMobileEnrollment({ nonce: "some-other-nonce", enrollment })
-      .catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(RootHeraldError);
-    expect((err as RootHeraldError).code).toBe("NONCE_MISMATCH");
-    expect(calls(fetchMock).length).toBe(0);
-  });
-
-  it("refuses a body missing nonce", async () => {
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(201, {}) });
-    const err = await rh.relayMobileEnrollment({ nonce: "", enrollment }).catch((e: unknown) => e);
-    expect((err as RootHeraldError).code).toBe("MISSING_NONCE");
-  });
-
-  it("refuses a non-iOS enrollment", async () => {
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(201, {}) });
-    const bad = { nonce: NONCE, enrollment: { platform: "windows", ekPublicKey: "e", akPublicArea: "a" } } as never;
-    const err = await rh.relayMobileEnrollment(bad).catch((e: unknown) => e);
-    expect((err as RootHeraldError).code).toBe("INVALID_ENROLL_BLOB");
-  });
-});
-
-describe("verifyMobileEvidence (mobile bridge)", () => {
-  const appVerifyBody = {
-    nonce: NONCE,
-    evidence: { iosAttestation: { assertion: "b64cbor", keyId: "b64key" } },
-  };
-
-  it("brokers verify() under the nonce and returns the verdict", async () => {
-    const fetchMock = mockFetch(200, { verdict: sampleVerdict(), assuranceClaimsMet: ["real-device"] });
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: fetchMock });
-    const result = await rh.verifyMobileEvidence(appVerifyBody);
-    expect(result.device.verdict).toBe("pass");
-    const [url, init] = calls(fetchMock)[0];
-    expect(url).toBe(`${BASE}/api/v1/attest/verify`);
-    const sent = JSON.parse(init.body);
-    expect(sent.nonce).toBe(NONCE);
-    expect("challengeId" in sent).toBe(false);
-    expect(sent.evidence.iosAttestation).toEqual({ assertion: "b64cbor", keyId: "b64key" });
-  });
-
-  it("rejects a body missing nonce", async () => {
+describe("mobile bridge helpers are gone", () => {
+  it("has no verifyMobileEvidence or relayMobileEnrollment", () => {
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, {}) });
-    const err = await rh.verifyMobileEvidence({ ...appVerifyBody, nonce: "" }).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(RootHeraldError);
-    expect((err as RootHeraldError).code).toBe("MISSING_NONCE");
-  });
-
-  it("rejects a body missing the assertion", async () => {
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, {}) });
-    const bad = { nonce: NONCE, evidence: { iosAttestation: { keyId: "x" } } } as never;
-    const err = await rh.verifyMobileEvidence(bad).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(InvalidEvidenceError);
-  });
-
-  it("rejects an attestation object where an assertion is required", async () => {
-    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, {}) });
-    const bad = {
-      nonce: NONCE,
-      evidence: { iosAttestation: { attestationObject: "x", keyId: "k" } },
-    } as never;
-    const err = await rh.verifyMobileEvidence(bad).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(InvalidEvidenceError);
+    expect("verifyMobileEvidence" in rh).toBe(false);
+    expect("relayMobileEnrollment" in rh).toBe(false);
   });
 });
 

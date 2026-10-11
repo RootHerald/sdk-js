@@ -19,18 +19,32 @@ export type {
 export type {
   AttestationVerdict,
   DeviceVerdict,
+  ExpectedBinding,
   TrustworthinessVector,
 } from "./sdk-api.js";
 
 export type {
+  AkBlob,
+  AppAttestKeyCertification,
   Ask,
   CertifiedKey,
+  CertifiedKeyJwk,
+  CertifyKeyRequest,
   ChallengeRequest,
   ChallengeResponse,
+  EcJwk,
   EvidenceBlob,
+  KeyAlg,
   KeyBlob,
   KeyCertification,
+  KeyChallengeRequest,
+  KeyChallengeResponse,
+  KeyFormat,
+  KeyPurpose,
   RequestedDisclosureClass,
+  RsaJwk,
+  SecureEnclaveKeyCertification,
+  TpmKeyCertification,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "./background-check.js";
@@ -40,6 +54,7 @@ export type {
 // (RelayEnroll*/RelayActivate*) lives on "@rootherald/contracts/server".
 export type {
   AppAttestEnrollRequestBlob,
+  AttestationKeyPublic,
   EnrollActivationChallenge,
   EnrollActivationResponse,
   EnrollRequestBlob,
@@ -73,12 +88,3 @@ export {
   /** @deprecated import from `@rootherald/contracts/server` */
   UnknownPolicyError,
 } from "./errors.js";
-
-// Mobile attestation bridge (browser-only customers, mobile users).
-export type {
-  TenantMobileConfig,
-  MobileAppEnrollRequest,
-  MobileAppVerifyRequest,
-  BuildMobileAttestLinkOptions,
-} from "./mobile-bridge.js";
-export { buildMobileAttestLink } from "./mobile-bridge.js";

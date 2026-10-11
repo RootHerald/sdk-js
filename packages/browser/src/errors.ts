@@ -2,12 +2,9 @@
  * Typed errors for @rootherald/browser.
  *
  * The two "missing" states are distinct error classes because they route to
- * different fixes in the cold-start install flow:
- *   - ExtensionMissingError -> install the browser extension (Step 1)
- *   - HostMissingError      -> download + run the native host installer (Step 2)
- *
- * Everything under {@link HostError} means the host answered: the fix is on
- * the flow (enroll first, ask for less, refresh the key), not the install.
+ * different fixes: install the browser extension, or install and run the
+ * native host. Everything under {@link HostError} means the host answered:
+ * the fix is on the flow (enroll, ask for less, mint again), not the install.
  */
 
 /** Base class for all errors thrown by @rootherald/browser. */
@@ -22,7 +19,7 @@ export class RootHeraldBrowserError extends Error {
 
 /**
  * The RootHerald browser extension did not respond to a probe within the
- * timeout, so we treat it as not installed. Route the user to install it.
+ * timeout, so we treat it as not installed.
  */
 export class ExtensionMissingError extends RootHeraldBrowserError {
   constructor(message = 'RootHerald browser extension not detected') {
@@ -33,8 +30,8 @@ export class ExtensionMissingError extends RootHeraldBrowserError {
 
 /**
  * The extension is present but could not reach the native messaging host
- * (`connectNative` failed / disconnected). Route the user to install + run
- * the native host.
+ * (`connectNative` failed / disconnected), or the host answered without the
+ * field the action promises.
  */
 export class HostMissingError extends RootHeraldBrowserError {
   constructor(message = 'RootHerald native host not reachable') {
@@ -66,23 +63,20 @@ export class HostError extends RootHeraldBrowserError {
 }
 
 /**
- * The extension and native host are both present, but the device has no
- * enrolled attestation key yet (host code `6`). This is the signal for the
- * "respond-first, enroll-on-miss" pattern: catch it, run `enroll()`, then
- * retry `respond()`. It is DISTINCT from {@link HostMissingError} (host
- * unreachable) so callers can branch on "needs enrollment" vs "needs install".
+ * No enrollment is in progress (host code `6`): `enroll-complete` was sent
+ * without an `enroll-begin` before it. `enroll()` runs both legs in order.
  */
 export class NotEnrolledError extends HostError {
-  constructor(message = 'Device is not enrolled — run enroll() first') {
+  constructor(message = 'No enrollment in progress — enroll() runs both legs') {
     super('6', message);
     this.name = 'NotEnrolledError';
   }
 }
 
 /**
- * The challenge asks for something this host cannot do (host code `13`), such
- * as `"key"` on a host or TPM without key certification. The backend should
- * issue a challenge with a smaller ask.
+ * The challenge asks for something this host cannot do (host code `13`): a
+ * known ask a platform cannot answer, or a key challenge on a host that
+ * cannot mint. The backend should issue a smaller ask.
  */
 export class AskUnsupportedError extends HostError {
   constructor(message = 'The challenge asks for something this host does not support') {
@@ -92,21 +86,21 @@ export class AskUnsupportedError extends HostError {
 }
 
 /**
- * The `KeyBlob` could not be loaded back into the TPM (host code `14`): it was
- * made by a different TPM, its parent has been rotated, or it is corrupt. Ask
- * the backend for a new `"key"` challenge and replace the stored blob.
+ * A blob could not be loaded back into the TPM (host code `14`): it was made
+ * by a different TPM, the TPM was cleared, or its parent changed. For the AK
+ * blob: discard it, `enroll()`, retry once. For a key blob: mint a new key.
  */
 export class KeyUnloadableError extends HostError {
-  constructor(message = 'The key blob could not be loaded into this TPM') {
+  constructor(message = 'The blob could not be loaded into this TPM') {
     super('14', message);
     this.name = 'KeyUnloadableError';
   }
 }
 
 /**
- * The installed host speaks a different client ABI than this SDK (host code
- * `abi_mismatch`, or an action the host does not know). Route the user to
- * update the native host.
+ * The installed host speaks a different client ABI than this SDK: the host
+ * reported another major, said `abi_mismatch`, or does not know the action.
+ * Update the native host.
  */
 export class AbiMismatchError extends HostError {
   constructor(
@@ -115,5 +109,16 @@ export class AbiMismatchError extends HostError {
   ) {
     super(code, message);
     this.name = 'AbiMismatchError';
+  }
+}
+
+/**
+ * `setUp` stopped before minting: the backend reported that the attest step
+ * did not pass. The installation is enrolled; no key was minted.
+ */
+export class NotAttestedError extends RootHeraldBrowserError {
+  constructor(message = 'The attest step did not pass; no key was minted') {
+    super(message);
+    this.name = 'NotAttestedError';
   }
 }

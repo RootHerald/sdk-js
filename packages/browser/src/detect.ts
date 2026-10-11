@@ -1,6 +1,6 @@
 /**
  * Cold-start client detection: OS, browser, extension presence, and native
- * host reachability. Drives the install stepper on first-visit.
+ * host reachability.
  */
 
 import { ACTION_PING, ACTION_STATUS } from './constants.js';

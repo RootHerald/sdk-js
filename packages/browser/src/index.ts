@@ -1,39 +1,58 @@
 /**
- * @rootherald/browser — the page-side RootHerald SDK (Client ABI 7.0).
+ * @rootherald/browser — the page-side RootHerald SDK (Client ABI 8.0).
  *
  * Orchestrates the KEYLESS client flow over the page <-> extension <-> native-host
  * bridge and hands opaque blobs to the EMBEDDER. The client verbs:
  *
- *   - `enroll(relay)`        — one-time device-key bootstrap; the two network legs
- *                              are relayed by the embedder's backend (see {@link enroll}).
- *   - `respond(challenge)`   — answer a backend-issued challenge: fresh TPM quote,
- *                              event log, key certification, whatever its ask says
- *                              -> opaque evidence blob (+ a `KeyBlob` on a key ask).
- *   - `sign(key, data)`      — sign with a certified key; the private half stays
- *                              in the TPM.
- *   - PreCheck               — `getClientStatus` / `getPosture` / detect helpers:
- *                              local readiness SIGNALS, never a verdict.
+ *   - `enroll(relay)`                  — enroll this installation; the two network legs are
+ *                                        relayed by the embedder's backend. Resolves `{ ak }`,
+ *                                        the AK blob the page keeps.
+ *   - `attest(challenge, { ak })`      — answer a backend-issued challenge: a fresh TPM quote
+ *                                        under the AK, plus the event log when asked
+ *                                        -> opaque evidence blob.
+ *   - `mintKey(keyChallenge, { ak })`  — mint a device-bound key certified by the AK
+ *                                        -> `{ certification, key }`; the page keeps `key`.
+ *   - `sign(key, data)`                — sign with a minted key; the private half stays
+ *                                        in the TPM.
+ *   - `setUp(relay, { purpose })`      — enroll → attest → mint, chained.
+ *   - PreCheck                         — `getClientStatus` / `getPosture` / detect helpers:
+ *                                        local readiness SIGNALS, never a verdict.
  *
  * BOUNDARY: this package is KEYLESS. The browser holds NO RootHerald key
- * and opens NO socket to RootHerald. Every action
- * is a local TPM operation; opaque blobs cross the bridge and are relayed to/from
- * RootHerald by the EMBEDDER's backend (a server SDK such as @rootherald/node,
- * which holds `rh_sk_`). No secret, no verdict, no RootHerald network call ever
- * happens in the browser.
+ * and opens NO socket to RootHerald. Every action is a local TPM operation;
+ * opaque blobs cross the bridge and are relayed to/from RootHerald by the
+ * EMBEDDER's backend (a server SDK such as @rootherald/node, which holds
+ * `rh_sk_`). No secret, no verdict, no RootHerald network call ever happens
+ * in the browser.
+ *
+ * This package drives RootHerald's own extension and native host, which are
+ * reference and test tools; it is not published to npm.
  */
 
 export {
-  respond,
-  type RespondOptions,
-  type RespondWithRelayOptions,
-  type RespondRelay,
-  type RespondResult,
-} from './respond.js';
+  attest,
+  type AttestOptions,
+  type AttestWithRelayOptions,
+  type AttestRelay,
+  type AttestResult,
+} from './attest.js';
+export {
+  mintKey,
+  type MintKeyOptions,
+  type MintKeyResult,
+} from './mint-key.js';
 export {
   sign,
+  type SignAlg,
   type SignOptions,
   type SignResult,
 } from './sign.js';
+export {
+  setUp,
+  type SetUpOptions,
+  type SetUpRelay,
+  type SetUpResult,
+} from './set-up.js';
 export {
   getPosture,
   type PostureOptions,
@@ -43,6 +62,7 @@ export {
   enroll,
   type EnrollRelay,
   type EnrollOptions,
+  type EnrollResult,
 } from './enroll.js';
 export {
   getClientStatus,
@@ -73,18 +93,22 @@ export {
   AskUnsupportedError,
   KeyUnloadableError,
   AbiMismatchError,
+  NotAttestedError,
 } from './errors.js';
 export {
   parseHostError,
+  abiMajor,
   type HostErrorToken,
 } from './host-error.js';
 export {
   ROOTHERALD_EXTENSION_ID,
   ROOTHERALD_NATIVE_HOST_NAME,
+  HOST_ABI_MAJOR,
   REQUEST_TYPE,
   RESPONSE_TYPE,
   ACTION_PING,
-  ACTION_RESPOND,
+  ACTION_ATTEST,
+  ACTION_MINT_KEY,
   ACTION_SIGN,
   ACTION_STATUS,
   ACTION_POSTURE,
@@ -100,9 +124,12 @@ export {
 // convenience. These are the opaque blobs that cross the bridge / get relayed;
 // the browser never inspects a verdict — that lives only on the backend.
 export type {
+  AkBlob,
   Ask,
   EvidenceBlob,
   KeyBlob,
+  KeyCertification,
+  KeyPurpose,
   EnrollRequestBlob,
   EnrollActivationChallenge,
   EnrollActivationResponse,

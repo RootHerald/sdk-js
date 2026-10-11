@@ -2,6 +2,39 @@
 
 All notable changes to `@rootherald/browser` are documented here.
 
+## 0.1.0-alpha.20
+
+Client ABI 8.0. The page keeps the installation's AK blob and every key blob;
+the host stores nothing. Not published to npm.
+
+### Breaking
+
+- `enroll(relay)` resolves `{ ak }`, the AK blob the page keeps and passes to
+  every `attest` and `mintKey`. `enroll-begin` returns `{ enrollBody,
+  akBlob }`; `enroll-complete` takes `{ challenge, akBlob }`.
+- `respond` is replaced by `attest(challenge, { ak })` → `{ evidence }`
+  (`attest { challenge, akBlob }`) and `mintKey(keyChallenge, { ak })` →
+  `{ certification, key }` (`mint-key { keyChallenge, akBlob }`). The `key`
+  option and the key in the result are gone; `RespondRelay.verify` loses its
+  second argument.
+- `sign` returns the `alg` the host reads from the key: `ES256` or `RS256`. A host
+  that omits `alg` is refused.
+- Every host answer must carry `abi`; a major other than 8 is
+  `AbiMismatchError`, raised on the page. `enroll-begin` without an `abi` is
+  refused before anything is relayed, so an 8.0 page behind a 7.0 extension
+  and host cannot enroll on the shared slot.
+- `NotEnrolledError` means `enroll-complete` without an `enroll-begin`;
+  `KeyUnloadableError` covers the AK blob as well as a key blob. The
+  `enrolled` posture signal is gone; `status` and `posture` carry
+  `capabilities`.
+
+### Added
+
+- `setUp(relay, { purpose })` chains `enroll` → `attest` → `mintKey` through
+  six relay callbacks and resolves `{ ak, key, verified }`; throws
+  `NotAttestedError` when the backend reports the attest did not pass.
+- `HOST_ABI_MAJOR`, `ACTION_ATTEST`, `ACTION_MINT_KEY`, `abiMajor`.
+
 ## 0.1.0-alpha.19
 
 ### Changed

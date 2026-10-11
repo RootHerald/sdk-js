@@ -1,5 +1,5 @@
 /**
- * The enroll handshake blobs (client-neutral), Client ABI 7.0.
+ * The enroll handshake blobs (client-neutral), Client ABI 8.0.
  *
  * ──────────────────────────────────────────────────────────────────────────
  * The client verbs (language-neutral; the client holds NO RootHerald key and
@@ -8,21 +8,28 @@
  *
  *   Open / Close     — acquire and release the TPM session every other verb
  *                      runs inside.
- *   PreCheck         — local readiness signals (TPM reachable? enrolled? Secure
- *                      Boot on?). Signals, NEVER a verdict.
- *   EnrollBegin      — `-> EnrollRequestBlob`. Then
- *   EnrollComplete   — `(EnrollActivationChallenge) -> EnrollActivationResponse`.
- *                      One-time device-key bootstrap under a single elevation:
- *                      gen AK, prove EK→AK via TPM2_MakeCredential /
- *                      TPM2_ActivateCredential.
- *   Respond          — `(challenge) -> EvidenceBlob` (see `background-check.ts`).
- *                      Takes the `rhc1.` challenge string verbatim, does what
- *                      its ask says (quote, event log, key certification), and
- *                      when the ask included "key" also returns the `KeyBlob`
- *                      the caller keeps.
- *   LoadKey / Sign / CloseKey
- *                    — load a `KeyBlob` back into the TPM, sign with it, and
- *                      release it. The private half never leaves the TPM.
+ *   PreCheck         — local readiness signals (TPM reachable? which AK
+ *                      families it supports?). Signals, NEVER a verdict.
+ *   EnrollBegin      — `-> EnrollRequestBlob + AkBlob`. Creates this
+ *                      installation's attestation key under the TPM's storage
+ *                      parent and hands it back wrapped (`rha1`). Then
+ *   EnrollComplete   — `(EnrollActivationChallenge, AkBlob) -> EnrollActivationResponse`.
+ *                      Proves EK→AK via TPM2_MakeCredential /
+ *                      TPM2_ActivateCredential. Windows needs one elevation
+ *                      per enrollment, here.
+ *   Attest           — `(challenge, AkBlob) -> EvidenceBlob` (see `background-check.ts`).
+ *                      Takes the `rhc1.` challenge string verbatim and quotes
+ *                      what its ask says under the AK. Evidence only.
+ *   MintKey          — `(keyChallenge, AkBlob) -> KeyCertification + KeyBlob`.
+ *                      Creates a new key and has the AK certify it over the
+ *                      `rhk1c.` key challenge's nonce.
+ *   LoadKey / KeyInfo / Sign / CloseKey / CheckKey
+ *                    — load a `KeyBlob` back into the TPM, read its purpose
+ *                      and algorithm, sign with it, and release it. The
+ *                      private half never leaves the TPM.
+ *
+ * The SDK stores nothing: the embedding app keeps the AK blob and every key
+ * blob, and passes the AK blob to every Attest and MintKey.
  *
  * The blobs below are produced/consumed by the client but never inspected by the
  * SDK transport; the customer's backend relays them to RootHerald with its
@@ -41,19 +48,38 @@
  */
 
 /**
+ * The per-installation attestation key, as `EnrollBegin()` describes it to
+ * the server. All three fields base64.
+ *
+ * The server recomputes the qualified name from the two public areas and
+ * refuses the enrollment (`400 invalid_enroll_shape`) when it differs from
+ * `qualifiedName`, so a key created under the wrong parent fails before any
+ * elevation prompt and before any row is written.
+ */
+export interface AttestationKeyPublic {
+  /** `TPM2B_PUBLIC` of the AK, as `TPM2_Create` emitted it. */
+  publicArea: string;
+  /** `TPM2B_PUBLIC` of the storage parent the AK was created under. */
+  parentPublicArea: string;
+  /** `TPM2B_NAME` qualified name of the AK, as `TPM2_ReadPublic` returned it. */
+  qualifiedName: string;
+}
+
+/**
  * `EnrollBegin()` output on a TPM 2.0 platform — the body of
  * `POST /api/v1/attest/enroll`. The server validates the EK chain,
- * template-checks the AK, and returns an {@link EnrollActivationChallenge}.
+ * template-checks the AK against its approved set, and returns an
+ * {@link EnrollActivationChallenge}.
+ *
+ * The nested `attestationKey` is what tells an 8.0 body from a 7.0 one; a
+ * flat body with a top-level `akPublicArea` is refused with
+ * `400 wire_version_unsupported`.
  */
 export interface TpmEnrollRequestBlob {
-  /** base64 platform-native EK public blob (Windows: NCrypt `PCP_EKPUB`). */
+  /** base64 `TPM2B_PUBLIC` of the endorsement key. */
   ekPublicKey: string;
-  /**
-   * base64 `TPM2B_PUBLIC` of the AK (length-prefixed `TPMT_PUBLIC`, exactly what
-   * `TPM2_CreatePrimary` emits) — the server hashes it into the AK Name used by
-   * `TPM2_MakeCredential`, and later finds the device by the quote's signer.
-   */
-  akPublicArea: string;
+  /** This installation's attestation key and its parent. */
+  attestationKey: AttestationKeyPublic;
   platform: "windows" | "linux";
   /**
    * PEM-encoded EK certificate. Optional: firmware TPMs (e.g. Intel PTT) ship no
@@ -80,7 +106,8 @@ export interface TpmEnrollRequestBlob {
 /**
  * `EnrollBegin()` output on macOS. The Secure Enclave key stands in for both
  * the EK and the AK: `ekPublicKey` and `akPublicArea` carry the SAME key
- * (X9.63 uncompressed, 65 bytes, base64). There is no EK certificate.
+ * (X9.63 uncompressed, 65 bytes, base64). There is no EK certificate and no
+ * parent, so the body stays flat; it is never refused for its shape.
  */
 export interface SecureEnclaveEnrollRequestBlob {
   ekPublicKey: string;
@@ -109,7 +136,8 @@ export interface AppAttestEnrollRequestBlob {
 
 /**
  * `EnrollBegin()` output — the body of `POST /api/v1/attest/enroll`,
- * discriminated by `platform`. The backend relays it verbatim.
+ * discriminated by `platform`. The backend relays it verbatim, whichever
+ * shape it is.
  */
 export type EnrollRequestBlob =
   | TpmEnrollRequestBlob
@@ -126,8 +154,9 @@ export type EnrollRequestBlob =
  * key signs. iOS enrollment returns `{}` instead (see
  * {@link import('./server.js').RelayEnrollResponse}).
  *
- * Every enroll returns a challenge, including a re-enroll of a known device:
- * re-enrollment is how a device rotates its attestation key.
+ * Every enroll returns a challenge, including for a device already known.
+ * Each activation creates a new installation with a new AK blob; the alias
+ * does not change.
  */
 export interface EnrollActivationChallenge {
   /**

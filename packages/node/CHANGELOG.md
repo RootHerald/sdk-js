@@ -2,6 +2,55 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.20
+
+Wire 8.0. Every installation of a client has its own attestation key, created
+inside the TPM at enrollment and handed back as an opaque AK blob the client
+keeps and passes to every attest and mint. Keys are minted in their own
+ceremony. A backend on this version cannot drive a 7.0 client, and the
+reverse; the server refuses a 7.0-shaped enroll body with
+`400 wire_version_unsupported`.
+
+### Breaking
+
+- `relayEnroll` takes the 8.0 TPM body `{ ekPublicKey, attestationKey:
+  { publicArea, parentPublicArea, qualifiedName }, platform, … }`
+  (`TpmEnrollRequestBlob`) and refuses a flat `akPublicArea` TPM body locally
+  (`INVALID_ENROLL_BLOB`). The macOS body stays flat and the iOS body is
+  unchanged; every body is relayed verbatim, unknown fields included.
+- Keys are minted by `issueKeyChallenge({ purpose, expectedDevices? })` →
+  `certifyKey(nonce, certification)` → `{ deviceId, keyId, purpose, alg,
+  format?, jwk, hardwareBound, certifiedAt }` (`CertifiedKeyResult`). The
+  `"key"` ask, `keyPurpose`, `AttestResult.key` and `AttestResultKey` are
+  removed; a challenge that still asks for `"key"` is `InvalidAskError`
+  (400 `invalid_ask`).
+- `issueChallenge` takes `expectedKey` and `expectedDevices` and no longer
+  takes `deviceHint`. Pass the same values to `verify`: a verdict that does
+  not echo them under `expected` is refused with `EXPECTED_NOT_ENFORCED`.
+- `CertifiedKey.jwk` is `EcJwk | RsaJwk`; `verifyKeySignature` and
+  `certifyKey` accept RSA-2048 keys (RS256, PKCS#1 v1.5). `authPolicy` is
+  gone from the certified key.
+- `verifyMobileEvidence`, `relayMobileEnrollment`, `buildMobileAttestLink`
+  and the `MobileApp*` / `TenantMobileConfig` types are removed with the
+  mobile bridge.
+- `DeviceVerdict` declares every field the server sends; `ueid` and `userId`
+  are optional (absent below `pseudonymous`) and `raw` is removed.
+  `device.identityFirstSeen` and `device.bootBaselineAt` are parsed to `Date`.
+- A 429 `budget_exhausted` is `QuotaExceededError` with `.budget { id, name }`;
+  the `quota_exceeded` code is gone. A 409 `key_rotation_conflict` is a plain
+  `RootHeraldApiError`, not `ChallengeError`.
+
+### Migration
+
+1. Re-enroll every installation: the client's `EnrollBegin` now returns an
+   AK blob, which the client keeps and passes to `Attest` and `MintKey`.
+2. Replace `issueChallenge({ ask: ['identity', 'key'], keyPurpose: 'sign' })`
+   plus `result.key` with `issueKeyChallenge({ purpose: 'sign',
+   expectedDevices: [alias] })` and `certifyKey(nonce, certification)`.
+3. Drop `deviceHint`; bind a challenge to a device with `expectedDevices`.
+4. Read `result.device.ueid` as `string | undefined`.
+5. Delete any mobile-bridge handler.
+
 ## 0.1.0-alpha.19
 
 ### Added

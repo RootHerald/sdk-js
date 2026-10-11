@@ -64,8 +64,7 @@ jobs:
       # in the tarball and make the package uninstallable
       # (npm ERR Unsupported URL Type "workspace:"). Materialize every intra-
       # workspace dep to its concrete published version before publishing.
-      # Publish order below (glob: browser, contracts, node) already publishes
-      # a dependency before its dependents.
+      # The publish step below walks the packages in dependency order.
       - name: "Materialize workspace: deps to concrete versions"
         run: |
           node -e '
@@ -130,7 +129,10 @@ jobs:
           echo "npm version: $(npm --version)"
 
           # Use npm publish directly (not pnpm) so OIDC env propagation is
-          # straightforward. Loop over each published-eligible package.
+          # straightforward. Loop over each published-eligible package in
+          # dependency order: node and browser depend on contracts, so a
+          # glob (browser, contracts, node) would publish a dependent before
+          # the version it pins exists.
           #
           # Trusted publishing CANNOT bootstrap a package that does not exist on
           # npm yet: there is no package page to attach a trusted publisher to,
@@ -142,7 +144,7 @@ jobs:
           # cannot block every other package in the workspace from shipping —
           # which is exactly what happened at v0.1.0-alpha.8.
           failed=0
-          for pkg_dir in packages/*/; do
+          for pkg_dir in packages/contracts/ packages/node/ packages/browser/; do
             [ -f "$pkg_dir/package.json" ] || continue
             grep -q '"private": *true' "$pkg_dir/package.json" && continue
             name=$(node -p "require('./$pkg_dir/package.json').name")

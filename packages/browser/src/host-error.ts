@@ -1,5 +1,6 @@
 /**
- * Turn a failed extension response into a typed error.
+ * Turn a failed extension response into a typed error, and refuse a host of
+ * the wrong ABI.
  *
  * The native host prefixes every error it emits with a stable token,
  * `rh:<code>:<text>`, so the page can branch on the code instead of the
@@ -8,6 +9,7 @@
  * extension's and not the host's.
  */
 
+import { HOST_ABI_MAJOR, type RootHeraldResponseData } from './constants.js';
 import { pingExtension } from './detect.js';
 import {
   AbiMismatchError,
@@ -51,13 +53,44 @@ export const HOST_CODE_UNKNOWN_ACTION = 'unknown_action';
 /** How long the post-timeout probe waits for the extension's `ping` answer. */
 const PROBE_TIMEOUT_MS = 1500;
 
+/** The major of a `"<major>.<minor>"` ABI string, or `undefined`. */
+export function abiMajor(abi: unknown): number | undefined {
+  if (typeof abi !== 'string') return undefined;
+  const m = /^(\d+)\.\d+$/.exec(abi);
+  return m ? Number(m[1]) : undefined;
+}
+
+/**
+ * Refuse a host that speaks another ABI major, from the page.
+ *
+ * The extension compares majors between itself and the host, never against
+ * the page, so an 8.0 page behind a 7.0 extension and a 7.0 host would run
+ * `enroll-begin` on the shared slot without anyone noticing. Every host
+ * answer carries `abi`; a wrong major is refused wherever it appears, and
+ * `enroll-begin` additionally requires it to be present, since that is the
+ * action whose silent success does the damage.
+ */
+export function requireHostAbi(
+  data: RootHeraldResponseData | undefined,
+  opts: { required: boolean },
+): void {
+  const major = abiMajor(data?.abi);
+  if (major === undefined && !opts.required) return;
+  if (major !== HOST_ABI_MAJOR) {
+    throw new AbiMismatchError(
+      `The RootHerald native host speaks ABI ${typeof data?.abi === 'string' ? data.abi : 'unknown'}; this SDK needs ${HOST_ABI_MAJOR}.x`,
+      'abi_mismatch',
+    );
+  }
+}
+
 /**
  * The error to throw for a verb's {@link SendResult} that is not a success.
  *
  * A timeout on its own does not say whether the extension is absent or the
- * host is slow (a `key` ask creates, certifies and quotes; enrollment waits
- * on a UAC prompt). So it is followed by a `ping`, which the extension
- * answers without touching the host: answered, the verb timed out
+ * host is slow (a mint creates and certifies; enrollment waits on a UAC
+ * prompt). So it is followed by a `ping`, which the extension answers
+ * without touching the host: answered, the verb timed out
  * ({@link TimeoutError}); silent, there is nothing on the page to relay
  * ({@link ExtensionMissingError}). A failed response is classified by
  * {@link classifyFailure}.

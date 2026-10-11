@@ -4,15 +4,15 @@ The Root Herald SDK family for JavaScript and TypeScript: several packages in on
 
 ## Packages
 
-These three packages are published and maintained:
+These three packages are maintained; `contracts` and `node` are published to npm:
 
 | Package | What it does | Where it runs |
 |---|---|---|
 | [`@rootherald/contracts`](./packages/contracts) | **Shared** contract / type layer (EAT claims, wire shapes, error classes) used by both the client and the server SDK. Also exposes server-context errors at `@rootherald/contracts/server`. | Shared (client + server) |
-| [`@rootherald/browser`](./packages/browser) | **Client**: collects an opaque device-evidence blob (and runs cold-start client detection) via the Root Herald browser extension. Keyless — no `rh_sk_` secret, no verdict. | Browsers / page code |
+| [`@rootherald/browser`](./packages/browser) | **Client**: enrolls, attests and mints keys through the Root Herald browser extension and native host. Keyless — no `rh_sk_` secret, no verdict. Reference and test tool; not published to npm. | Browsers / page code |
 | [`@rootherald/node`](./packages/node) | **Server**: run the server→server Background-Check (`rh_sk_` secret + verdict live here). | Node.js backends |
 
-The browser package only **collects** evidence; **verification and the `rh_sk_`
+The browser package only drives the device; **verification and the `rh_sk_`
 secret live exclusively in a server SDK** (`@rootherald/node`, and the other
 server SDKs at [github.com/RootHerald](https://github.com/RootHerald)).
 
@@ -30,8 +30,7 @@ one is picked up. This repo contains only what is published or about to be:
 # Server: run the Background-Check
 npm i @rootherald/node
 
-# Client: collect device evidence from a web page
-npm i @rootherald/browser
+# Client: a native app on the C SDK (sdk-windows / sdk-linux / sdk-macos)
 ```
 
 Each package's README has a 30-second integration example.
@@ -47,7 +46,7 @@ pnpm typecheck  # tsc --noEmit across the workspace
 
 ## Releases
 
-Each package versions independently via Changesets (or per-package tags). Releases use [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/): the GitHub Actions workflow OIDCs to npm, with no `NPM_TOKEN` stored. Published packages carry [Sigstore provenance attestations](https://blog.sigstore.dev/npm-provenance-ga/) you can verify with `npm view <pkg> --json | jq .attestations`.
+Every package carries the same version; a `v*` tag publishes `contracts`, then `node` (`browser` is skipped until it is bootstrapped on npm). Releases use [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/): the GitHub Actions workflow OIDCs to npm, with no `NPM_TOKEN` stored. Published packages carry [Sigstore provenance attestations](https://blog.sigstore.dev/npm-provenance-ga/) you can verify with `npm view <pkg> --json | jq .attestations`.
 
 ## License
 

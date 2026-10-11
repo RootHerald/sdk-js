@@ -2,23 +2,25 @@
  * Background-Check (server -> server) wire DTOs.
  *
  * These mirror the frozen RootHerald HTTP contract for the server-side
- * appraisal flow:
- *   - C1  POST /api/v1/attest/challenge  (mint a challenge; the nonce is its handle)
- *   - C2  POST /api/v1/attest/verify     (server -> server appraise)
+ * ceremonies a customer's backend drives with its `rh_sk_` secret key:
  *
- * The customer's dumb client collects an opaque evidence blob and hands it to
- * the customer's own server; that server calls these endpoints with its
- * `rh_sk_` secret key. The verdict reuses the EXISTING `AttestationVerdict`
- * shape (see `sdk-api.ts`) — there is no parallel verdict type.
+ *   Attest  — POST /api/v1/attest/challenge  (mint a challenge; the nonce is its handle)
+ *             POST /api/v1/attest/verify     (appraise the evidence)
+ *   MintKey — POST /api/v1/keys/challenge    (mint a key challenge for a purpose)
+ *             POST /api/v1/keys/certify      (register the key the AK certified)
+ *
+ * The customer's client collects an opaque blob and hands it to the
+ * customer's own server; that server calls these endpoints. The verdict
+ * reuses the EXISTING `AttestationVerdict` shape (see `sdk-api.ts`).
  *
  * The challenge carries the ask. What the device is being asked to prove is
- * fixed at C1, stored on the server's challenge row, and echoed to the client
- * inside the `challenge` string; C2 appraises against that stored ask, so a
- * caller cannot widen or weaken it between the two legs.
+ * fixed at challenge time, stored on the server's challenge row, and echoed
+ * to the client inside the `challenge` string; verify appraises against that
+ * stored ask, so a caller cannot widen or weaken it between the two legs.
  *
  * Nothing in a request body locates a row. The server finds the tenant from
  * the `rh_sk_` key, the challenge from the nonce the proof was made over, and
- * the device from the proof itself.
+ * the installation from the proof itself.
  *
  * Pure types; no runtime code. These are the shapes the other-language SDKs
  * mirror against, so they are deliberately exact.
@@ -29,41 +31,44 @@ import type { AttestationVerdict } from "./sdk-api.js";
 /**
  * One thing a challenge asks the device to prove.
  *
- * - `identity` — this is a specific, enrolled TPM (quote under the enrolled AK).
+ * - `identity` — this is a specific, enrolled installation (quote under its AK).
  * - `posture`  — boot configuration (event log replay, Secure Boot, PCRs).
- * - `key`      — certify a freshly created, TPM-resident signing key under the
- *                AK, so the caller can later trust signatures from it.
+ *
+ * Keys are never asked for here; they have their own ceremony
+ * ({@link KeyChallengeRequest}). A `"key"` ask is refused with `400 invalid_ask`.
  */
-export type Ask = "identity" | "posture" | "key";
+export type Ask = "identity" | "posture";
 
 /**
- * Request body for `POST /api/v1/attest/challenge` (C1). Policies bind to the
+ * Request body for `POST /api/v1/attest/challenge`. Policies bind to the
  * API key, so no body names one.
  */
 export interface ChallengeRequest {
   /**
-   * Optional hint identifying the device the challenge is for. No pre-enrolled
-   * device is required; the hint is advisory.
-   */
-  deviceHint?: string;
-  /**
-   * What the device is asked to prove. Omitted => `["identity", "posture"]`,
-   * which is exactly what a challenge did before the ask existed. Bound to the
-   * challenge row; the client learns it from {@link ChallengeResponse.challenge}.
+   * What the device is asked to prove. Omitted => `["identity", "posture"]`.
+   * Bound to the challenge row; the client learns it from
+   * {@link ChallengeResponse.challenge}.
    */
   ask?: Ask[];
   /**
-   * What the certified key will be used for. Read only when `ask` contains
-   * `"key"`; ignored otherwise. `"sign"` is the only purpose today.
+   * The `keyId` of a key this tenant certified. The verdict fails with reason
+   * `expected_device_mismatch` unless the quote came from the installation
+   * that holds that key. Unknown => `422 expected_unknown`.
    */
-  keyPurpose?: "sign";
+  expectedKey?: string;
+  /**
+   * Aliases (`verdict.device.ueid`) this tenant enrolled. The verdict fails
+   * with reason `expected_device_mismatch` unless the quote came from one of
+   * them. Unknown => `422 expected_unknown`.
+   */
+  expectedDevices?: string[];
 }
 
-/** Response body (200) for `POST /api/v1/attest/challenge` (C1). */
+/** Response body (200) for `POST /api/v1/attest/challenge`. */
 export interface ChallengeResponse {
   /**
    * The backend's handle for this challenge: 32 random bytes, base64url
-   * without padding (43 characters). Pass it to verify (C2); the server finds
+   * without padding (43 characters). Pass it to verify; the server finds
    * the challenge by it. It is the same bytes as the second segment of
    * {@link challenge}.
    */
@@ -75,38 +80,16 @@ export interface ChallengeResponse {
    *
    *   `rhc1.<base64url nonce>.<base64url ask-json>`
    *
-   * The third segment decodes to `{"ask":[...]}`, plus `"purpose":"sign"` when
-   * the ask contains `"key"` (the request field is `keyPurpose`; the echoed key
-   * is `purpose`, matching {@link KeyCertification.purpose}).
+   * The third segment decodes to `{"ask":[...]}`.
    *
    * The client parses it to learn the nonce and the ask; nothing else on the
    * customer side needs to. The TPM signs the NONCE ONLY — the ask segment is
    * not covered by the quote. It does not need to be: the ask is bound by the
-   * server's challenge row, found by the nonce, and C2 appraises against that
-   * row, so tampering with the third segment in transit changes what the
+   * server's challenge row, found by the nonce, and verify appraises against
+   * that row, so tampering with the third segment in transit changes what the
    * client collects but not what the server demands.
    */
   challenge: string;
-}
-
-/**
- * The certification of a freshly created signing key, present in the evidence
- * when the challenge asked for `"key"`. All fields base64.
- *
- * The client creates a P-256 key under the TPM's storage hierarchy, then runs
- * `TPM2_Certify` over it with the enrolled AK, qualifying the certification
- * with the challenge nonce. The wrapped private key (the {@link KeyBlob}) NEVER
- * travels to RootHerald — only the public area and the AK's statement about it.
- */
-export interface KeyCertification {
-  /** `TPM2B_PUBLIC` of the new key. */
-  publicArea: string;
-  /** `TPM2B_ATTEST` emitted by `TPM2_Certify` (a `TPMS_ATTEST` of type CERTIFY). */
-  attest: string;
-  /** `TPMT_SIGNATURE` over `attest`, made by the enrolled AK. */
-  signature: string;
-  /** Echo of the challenge's `keyPurpose`; `"sign"` is the only purpose today. */
-  purpose: "sign";
 }
 
 /**
@@ -116,75 +99,35 @@ export interface KeyCertification {
  * Documented contents, for the server and the native SDKs that agree on them
  * (the type stays `unknown` because no JS SDK reads inside it):
  *
- *   - the quote, PCR values and event log the existing asks need; the server
- *     locates the device by the signer named inside the signed quote, so the
- *     blob carries no device identifier;
- *   - `keyCertification?: KeyCertification` — present only when the challenge
- *     asked for `"key"`. See {@link KeyCertification}.
+ *   `{ pcrValues, quote, logs?: { srtm?: string }, ekCertPem?, ekCertificateChain? }`
+ *
+ * `logs` is keyed by log kind; `srtm` is the TCG event log the posture ask
+ * needs. The server locates the installation by the signer named inside the
+ * signed quote, so the blob carries no device identifier.
  */
 export type EvidenceBlob = unknown;
 
 /**
  * How much device detail the caller is asking the appraisal to disclose,
  * from the least-revealing pass/fail token up to the full claim set. Omit to
- * accept the policy's default disclosure ceiling.
+ * accept the API key's disclosure ceiling (default `pseudonymous`).
  */
 export type RequestedDisclosureClass = "verdict" | "pseudonymous" | "derived" | "full";
 
-/** Request body for `POST /api/v1/attest/verify` (C2). */
+/** Request body for `POST /api/v1/attest/verify`. */
 export interface VerifyAttestationRequest {
-  /** The challenge handle returned by C1 ({@link ChallengeResponse.nonce}). */
+  /** The challenge handle returned by the challenge leg ({@link ChallengeResponse.nonce}). */
   nonce: string;
   /** The opaque evidence blob produced by the client collector. */
   evidence: EvidenceBlob;
   /**
    * Optional disclosure ceiling the caller is requesting for this appraisal.
-   * Omitted => the resolved policy's default disclosure applies.
+   * Omitted => the API key's ceiling applies (default `pseudonymous`).
    */
   requestedDisclosureClass?: RequestedDisclosureClass;
 }
 
-/**
- * A TPM-resident signing key the appraisal certified, returned from C2 when
- * the challenge asked for `"key"` and the verdict passed.
- *
- * Sits at the `pseudonymous` disclosure rung: `keyId` identifies the key, not
- * the device, and a fresh key is certified per ask.
- */
-export interface CertifiedKey {
-  /** RootHerald's id for this key. Stable for the key's lifetime. */
-  keyId: string;
-  /** The public key, as a JWK. P-256 is the only curve today. */
-  jwk: {
-    kty: "EC";
-    crv: "P-256";
-    x: string;
-    y: string;
-  };
-  /** What the key is certified for; echoes the challenge's `keyPurpose`. */
-  purpose: "sign";
-  /**
-   * Hex `authPolicy` digest from the key's public area, when the key was
-   * created with one. Absent for a key with no policy.
-   */
-  authPolicy?: string;
-  /** ISO 8601 timestamp of the certification. */
-  certifiedAt: string;
-}
-
-/**
- * Opaque handle to the wrapped private key, held by the CALLER, never by
- * RootHerald. The native SDK returns one from the `"key"` ask and takes it back
- * for `LoadKey`; the caller stores it and no SDK ever parses it.
- *
- * For the record only: base64url of `rhk1` magic + version byte + parent id +
- * `TPM2B_PUBLIC` + `TPM2B_PRIVATE`, roughly 300 bytes for a P-256 key. The
- * private half is wrapped by the TPM's storage parent and is useless off the
- * TPM that created it.
- */
-export type KeyBlob = string;
-
-/** Response body (200) for `POST /api/v1/attest/verify` (C2). */
+/** Response body (200) for `POST /api/v1/attest/verify`. */
 export interface VerifyAttestationResponse {
   /** The appraisal verdict — the EXISTING `AttestationVerdict` shape. */
   verdict: AttestationVerdict;
@@ -195,15 +138,186 @@ export interface VerifyAttestationResponse {
    */
   assuranceClaimsMet?: string[];
   /**
-   * `true` when the device is not yet enrolled and the caller should drive the
-   * enroll/re-attestation flow before trusting the verdict. Drives the
-   * documented attest-first / enroll-on-miss pattern.
+   * `true` when the quote did not resolve to a live installation of this
+   * tenant (never enrolled, re-enrolled elsewhere, TPM cleared). The client
+   * should enroll and the caller should not trust the verdict.
    */
   enrollmentRequired?: boolean;
+}
+
+// ── Blobs the device keeps ─────────────────────────────────────────────────
+
+/**
+ * Opaque handle to this installation's wrapped attestation key, returned by
+ * `EnrollBegin` and taken back by `EnrollComplete`, `Attest` and `MintKey`.
+ * Held by the embedding app, never by RootHerald; no SDK parses it.
+ *
+ * For the record only: base64url of `rha1` magic + version + parent id +
+ * template id + `TPM2B_PUBLIC` + `TPM2B_PRIVATE`. The private half is wrapped
+ * by the TPM's storage parent; off that TPM, or after a TPM clear, it fails
+ * to load (`KEY_UNLOADABLE`): discard it, enroll, retry once.
+ *
+ * It is a credential: any process on the device that holds it can attest and
+ * mint as this installation.
+ */
+export type AkBlob = string;
+
+/**
+ * Opaque handle to a wrapped app key (sign or decrypt), returned by `MintKey`
+ * and taken back by `LoadKey`. Held by the embedding app, never by RootHerald;
+ * no SDK parses it.
+ *
+ * For the record only: base64url of `rhk1` magic + version + parent id +
+ * template id + `TPM2B_PUBLIC` + `TPM2B_PRIVATE`. On macOS the blob is an
+ * `rhm1` selector for the Secure Enclave key and carries no key material.
+ *
+ * It is a credential: any process on the device that holds it can use the key.
+ */
+export type KeyBlob = string;
+
+// ── Ceremony 2: mint a key ─────────────────────────────────────────────────
+
+/**
+ * What a minted key is for. One live key per installation per purpose;
+ * minting again rotates it under the same `keyId`.
+ *
+ * `decrypt` keys arrive with wire 8.1; the server refuses the purpose before
+ * then.
+ */
+export type KeyPurpose = "sign" | "decrypt";
+
+/** Request body for `POST /api/v1/keys/challenge`. */
+export interface KeyChallengeRequest {
+  purpose: KeyPurpose;
   /**
-   * The certified signing key. Present only when the challenge asked for
-   * `"key"` AND the verdict is a pass; a failing verdict certifies nothing,
-   * whatever the evidence carried.
+   * Aliases (`verdict.device.ueid`) this tenant enrolled. The certify leg is
+   * refused unless the key was certified by one of them. Unknown =>
+   * `422 expected_unknown`.
    */
-  key?: CertifiedKey;
+  expectedDevices?: string[];
+}
+
+/** Response body (200) for `POST /api/v1/keys/challenge`. */
+export interface KeyChallengeResponse {
+  /** The backend's handle for this key challenge, as {@link ChallengeResponse.nonce}. */
+  nonce: string;
+  /**
+   * The string to relay to the client verbatim. Format:
+   *
+   *   `rhk1c.<base64url nonce>.<base64url {"purpose":...}>`
+   *
+   * The device's `MintKey` reads the nonce and the purpose from it.
+   */
+  keyChallenge: string;
+  /** ISO 8601 timestamp after which the key challenge is no longer valid. */
+  expiresAt: string;
+}
+
+/**
+ * `MintKey` output on a TPM platform. All fields base64.
+ *
+ * The client creates the key under the TPM's storage parent, then runs
+ * `TPM2_Certify` over it with the installation's AK, with the key challenge's
+ * nonce as `extraData`. The wrapped private key (the {@link KeyBlob}) never
+ * travels to RootHerald — only the public area and the AK's statement about it.
+ */
+export interface TpmKeyCertification {
+  /** `TPM2B_PUBLIC` of the new key. */
+  publicArea: string;
+  /** `TPM2B_ATTEST` emitted by `TPM2_Certify` (a `TPMS_ATTEST` of type CERTIFY). */
+  attest: string;
+  /** `TPMT_SIGNATURE` over `attest`, made by the installation's AK. */
+  signature: string;
+}
+
+/**
+ * `MintKey` output on macOS: possession of the Secure Enclave key over the
+ * nonce. No new key is created and nothing attests it, so the certified key
+ * carries `hardwareBound: false`.
+ */
+export interface SecureEnclaveKeyCertification {
+  platform: "macos";
+  /** base64 X9.63 uncompressed P-256 point (65 bytes) of the enclave key. */
+  publicKey: string;
+  /** base64 ECDSA-P256-SHA256 signature over the fixed prefix ‖ nonce. */
+  signature: string;
+}
+
+/**
+ * `MintKey` output on iOS: an App Attest assertion over the nonce by the
+ * enrolled App Attest key. Purpose `sign` only.
+ */
+export interface AppAttestKeyCertification {
+  platform: "ios";
+  /** base64 App Attest key id. */
+  keyId: string;
+  /** base64 CBOR App Attest assertion over the fixed prefix ‖ nonce. */
+  assertion: string;
+}
+
+/** The device's `MintKey` output, by platform. Relayed verbatim. */
+export type KeyCertification =
+  | TpmKeyCertification
+  | SecureEnclaveKeyCertification
+  | AppAttestKeyCertification;
+
+/** Request body for `POST /api/v1/keys/certify`. */
+export interface CertifyKeyRequest {
+  /** The key challenge handle ({@link KeyChallengeResponse.nonce}). */
+  nonce: string;
+  /** The device's `MintKey` output, verbatim. */
+  certification: KeyCertification;
+}
+
+/** JOSE algorithm a certified key is used with; follows from its purpose and type. */
+export type KeyAlg = "ES256" | "RS256" | "ECDH-ES" | "RSA-OAEP-256";
+
+/** Envelope format for a decrypt key: JWE compact on TPM platforms, ECIES on macOS. */
+export type KeyFormat = "jwe" | "apple-ecies";
+
+/** EC P-256 public key, as a JWK. */
+export interface EcJwk {
+  kty: "EC";
+  crv: "P-256";
+  x: string;
+  y: string;
+}
+
+/** RSA-2048 public key, as a JWK. */
+export interface RsaJwk {
+  kty: "RSA";
+  n: string;
+  e: string;
+}
+
+/** The public half of a {@link CertifiedKey}. */
+export type CertifiedKeyJwk = EcJwk | RsaJwk;
+
+/**
+ * Response body (200) for `POST /api/v1/keys/certify`: the key RootHerald
+ * registered against the installation that certified it.
+ *
+ * `keyId` identifies an installation's credential, never a device: bind
+ * accounts to `deviceId` (the alias). Minting again for the same purpose
+ * rotates the key under the same `keyId`; a re-enrolled installation gets
+ * new key IDs.
+ */
+export interface CertifiedKey {
+  /** This tenant's alias for the device that holds the key (`verdict.device.ueid`). */
+  deviceId: string;
+  /** RootHerald's id for this key. Stable across rotations of the same purpose. */
+  keyId: string;
+  purpose: KeyPurpose;
+  /** `ES256` / `RS256` for a sign key; `ECDH-ES` / `RSA-OAEP-256` for a decrypt key. */
+  alg: KeyAlg;
+  /** Present for a decrypt key: the envelope `encryptToDevice` must produce. */
+  format?: KeyFormat;
+  jwk: CertifiedKeyJwk;
+  /**
+   * `true` when the key lives in a TPM and was certified by the installation's
+   * AK; `false` on macOS, where the certification proves possession only.
+   */
+  hardwareBound: boolean;
+  /** ISO 8601 timestamp of the certification. */
+  certifiedAt: string;
 }

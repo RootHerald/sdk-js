@@ -14,34 +14,43 @@ its own only when you want to share these types with your own code.
 npm install @rootherald/contracts
 ```
 
+Wire 8.0 from `0.1.0-alpha.20`. A 7.0-shaped enroll body is refused by the
+server with `400 wire_version_unsupported`.
+
 ## What's in here
 
 - **Attestation enums**: `AcrUrn`, `AmrValue`, `EarStatus`, `AttestationType`,
   `Platform`, `Verdict`.
 - **SDK API types**: `AttestationVerdict`, `DeviceVerdict`,
-  `TrustworthinessVector`.
-- **Background-Check wire types**: `ChallengeRequest` / `ChallengeResponse`,
+  `TrustworthinessVector`, `ExpectedBinding`. `DeviceVerdict` declares every
+  field the server sends; the ones gated by disclosure class, `ueid` among
+  them, are optional.
+- **Attest wire types**: `ChallengeRequest` / `ChallengeResponse`,
   `EvidenceBlob`, `VerifyAttestationRequest` / `VerifyAttestationResponse`.
-  The challenge carries the ask (`Ask`: `identity` / `posture` / `key`); a
-  `key` ask certifies a TPM-resident signing key and returns it as
-  `CertifiedKey`, with `KeyCertification` documenting the evidence field and
-  `KeyBlob` the opaque handle the caller keeps.
+  The challenge carries the ask (`Ask`: `identity` / `posture`) and may name
+  the key (`expectedKey`) or devices (`expectedDevices`) that must answer.
+- **Mint-a-key wire types**: `KeyChallengeRequest` / `KeyChallengeResponse`,
+  the device's `KeyCertification` (`TpmKeyCertification`,
+  `SecureEnclaveKeyCertification` or `AppAttestKeyCertification`),
+  `CertifyKeyRequest`, and the `CertifiedKey` the server returns (`EcJwk` or
+  `RsaJwk`, `alg`, `format`, `hardwareBound`, `deviceId`). `AkBlob` and
+  `KeyBlob` are the opaque handles the device keeps.
 - **Client ABI enroll blobs** (client-neutral): `EnrollRequestBlob` (a union
   of `TpmEnrollRequestBlob`, `SecureEnclaveEnrollRequestBlob` and
-  `AppAttestEnrollRequestBlob`, discriminated by `platform`),
-  `EnrollActivationChallenge`, `EnrollActivationResponse`. The client verbs are
-  Open/Close, PreCheck, EnrollBegin/EnrollComplete, Respond, and
-  LoadKey/Sign/CloseKey; the client holds no RootHerald key and opens no socket
-  to RootHerald.
+  `AppAttestEnrollRequestBlob`, discriminated by `platform`; 8.0 TPM bodies
+  nest the AK under `attestationKey`), `EnrollActivationChallenge`,
+  `EnrollActivationResponse`. The client verbs are Open/Close, PreCheck,
+  EnrollBegin/EnrollComplete, Attest, MintKey, LoadKey/KeyInfo/Sign/CloseKey
+  and CheckKey. EnrollBegin returns the AK blob the device keeps; the SDK
+  stores nothing. The client holds no RootHerald key and opens no socket to
+  RootHerald.
 - **Backend relay contract** (server-context, on `/server`): `RelayEnrollRequest`
   / `RelayEnrollResponse` / `RelayEnrollResult`, `RelayActivateRequest` /
-  `RelayActivateResponse`, alongside the challenge/verify pair, for the `rh_sk_`
-  server SDK helpers. `RelayEnrollResult` is the one shape every server SDK
-  returns from its `relayEnroll` helper: `{ challenge }`, the 201 body to relay
-  to the device, and nothing the server assigned.
-- **Mobile bridge**: `MobileAppEnrollRequest` / `MobileAppVerifyRequest` (the
-  bodies the bridge forwards to a customer backend), `TenantMobileConfig`, and
-  `buildMobileAttestLink`.
+  `RelayActivateResponse`, alongside the challenge/verify and
+  key-challenge/certify pairs, for the `rh_sk_` server SDK helpers.
+  `RelayEnrollResult` is the one shape every server SDK returns from its
+  `relayEnroll` helper: `{ challenge }`, the 201 body to relay to the device,
+  and nothing the server assigned.
 - **Error classes**: split by context (below).
 
 ## Errors: client-neutral vs server-context
@@ -66,12 +75,21 @@ on the `rh_sk_` path, via `@rootherald/node` or another server SDK):
 - `UnknownPolicyError`: the named policy is unknown/foreign (422).
 - `AdmissionRefusedError`: enrollment refused because the device can never
   satisfy the key's identity policy; the message names the TPM class (422).
-- `QuotaExceededError`: the tenant exceeded its metered verify quota (429
-  `quota_exceeded` or `X-RootHerald-Quota`).
+- `QuotaExceededError`: the key's budget cannot pay for a new device (429
+  `budget_exhausted` or `X-RootHerald-Quota`); `budget` names the budget.
 - `RateLimitedError`: the request-rate limiter refused the call; carries
   `retryAfterSeconds` (any other 429).
 - `ChallengeError`: the challenge expired or was already used (409).
-- `InvalidEvidenceError`: the evidence blob was malformed/unappraisable (400).
+- `InvalidEvidenceError`: the relayed blob was malformed/unappraisable (400,
+  including `wire_version_unsupported`, `invalid_enroll_shape` and
+  `invalid_certification`).
+- `InvalidAskError`: the challenge named an ask or purpose the server does
+  not know (400 `invalid_ask`, `invalid_purpose`).
+
+A 409 `key_rotation_conflict`, a 422 `expected_unknown`,
+`key_disclosure_too_low`, `purpose_unsupported` or `certification_rejected`,
+and any other code no class covers, is a plain `RootHeraldApiError` with
+`errorCode` preserved.
 
 Import the server-context errors from the dedicated subpath:
 
