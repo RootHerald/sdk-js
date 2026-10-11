@@ -19,10 +19,20 @@
  *   const kc = await rh.issueKeyChallenge({ purpose: "sign", expectedDevices: [deviceId] });
  *   const key = await rh.certifyKey(kc.nonce, certification);
  *   verifyKeySignature(key.jwk, message, signature);                   // no RootHerald call
+ *
+ *   // or, for a decrypt key: encrypt so that only that device can open it
+ *   const envelope = encryptToDevice(key, secret);                      // no RootHerald call
  */
 
 export { RootHeraldClient } from "./client.js";
 export { verifyKeySignature } from "./key.js";
+export {
+  encryptToDevice,
+  AppleEciesKeyError,
+  EncryptToDeviceError,
+  SignKeyError,
+  type EncryptableKey,
+} from "./envelope.js";
 
 export type {
   AttestOptions,
@@ -71,6 +81,7 @@ export type {
   CertifyKeyRequest,
   ChallengeRequest,
   ChallengeResponse,
+  DeviceEnvelope,
   DeviceVerdict,
   EarStatus,
   EcJwk,

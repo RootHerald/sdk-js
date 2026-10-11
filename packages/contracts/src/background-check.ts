@@ -272,8 +272,22 @@ export interface CertifyKeyRequest {
 /** JOSE algorithm a certified key is used with; follows from its purpose and type. */
 export type KeyAlg = "ES256" | "RS256" | "ECDH-ES" | "RSA-OAEP-256";
 
-/** Envelope format for a decrypt key: JWE compact on TPM platforms, ECIES on macOS. */
+/**
+ * Envelope format a decrypt key opens. `jwe` on TPM platforms: one JWE compact
+ * serialization, `ECDH-ES` for an EC key or `RSA-OAEP-256` for an RSA key,
+ * content encryption `A256GCM`. `apple-ecies` on macOS: Apple's ECIES from
+ * Security.framework, which only an Apple-side encryptor produces; the server
+ * SDKs' `encryptToDevice` refuse such a key by name.
+ */
 export type KeyFormat = "jwe" | "apple-ecies";
+
+/**
+ * Ciphertext only the device's decrypt key opens: a JWE compact serialization
+ * (`header.encryptedKey.iv.ciphertext.tag`, base64url, the key segment empty
+ * for `ECDH-ES`) as `encryptToDevice` produces it and the device's `Decrypt`
+ * consumes it. Opaque to every SDK but the two ends.
+ */
+export type DeviceEnvelope = string;
 
 /** EC P-256 public key, as a JWK. */
 export interface EcJwk {

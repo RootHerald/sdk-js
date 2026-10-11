@@ -13,6 +13,7 @@ describe('public API', () => {
     expect(typeof sdk.attest).toBe('function');
     expect(typeof sdk.mintKey).toBe('function');
     expect(typeof sdk.sign).toBe('function');
+    expect(typeof sdk.decrypt).toBe('function');
     expect(typeof sdk.setUp).toBe('function');
     expect(typeof sdk.getPosture).toBe('function');
     expect(typeof sdk.getClientStatus).toBe('function');
@@ -25,6 +26,7 @@ describe('public API', () => {
     expect(sdk.ACTION_ATTEST).toBe('attest');
     expect(sdk.ACTION_MINT_KEY).toBe('mint-key');
     expect(sdk.ACTION_SIGN).toBe('sign');
+    expect(sdk.ACTION_DECRYPT).toBe('decrypt');
     expect(sdk.ACTION_POSTURE).toBe('posture');
     expect(sdk.ACTION_STATUS).toBe('status');
     expect(sdk.HOST_ABI_MAJOR).toBe(8);
@@ -42,12 +44,16 @@ describe('public API', () => {
       sdk.NotEnrolledError,
       sdk.AskUnsupportedError,
       sdk.KeyUnloadableError,
+      sdk.InvalidArgumentError,
+      sdk.DecryptFailedError,
       sdk.AbiMismatchError,
       sdk.NotAttestedError,
     ]) {
       expect(typeof E).toBe('function');
     }
     expect(new sdk.NotEnrolledError()).toBeInstanceOf(sdk.HostError);
+    expect(new sdk.DecryptFailedError()).toBeInstanceOf(sdk.HostError);
+    expect(new sdk.InvalidArgumentError()).toBeInstanceOf(sdk.HostError);
     expect(new sdk.AbiMismatchError()).toBeInstanceOf(sdk.RootHeraldBrowserError);
     expect(new sdk.NotAttestedError()).toBeInstanceOf(sdk.RootHeraldBrowserError);
     expect(new sdk.NotAttestedError()).not.toBeInstanceOf(sdk.HostError);

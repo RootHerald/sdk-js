@@ -1,7 +1,7 @@
 /**
  * Stable identifiers and message shapes for the page <-> extension wire.
  *
- * These mirror the Client ABI 8.0 protocol implemented by the RootHerald
+ * These mirror the Client ABI 8.1 protocol implemented by the RootHerald
  * browser extension (content-script / service-worker) and the native host. The
  * page is the initiator; the extension never broadcasts unsolicited, so a site
  * that does not use RootHerald cannot fingerprint the extension.
@@ -14,7 +14,7 @@
  * bridge, and keeps the AK blob and key blobs the host hands back.
  */
 
-import type { AkBlob, KeyBlob, KeyCertification } from '@rootherald/contracts';
+import type { AkBlob, DeviceEnvelope, KeyBlob, KeyCertification } from '@rootherald/contracts';
 import type { RelayEnrollResponse } from '@rootherald/contracts/server';
 
 /**
@@ -58,6 +58,14 @@ export const ACTION_MINT_KEY = 'mint-key' as const;
  * leaves the TPM.
  */
 export const ACTION_SIGN = 'sign' as const;
+/**
+ * Action: open an envelope with a minted decrypt key (host `LoadKey` /
+ * `Decrypt` / `CloseKey`). Takes the `keyBlob` from an earlier `mint-key` with
+ * purpose `decrypt` and the compact `jwe` the backend's `encryptToDevice`
+ * made. Returns `{ plaintext }`, base64url. The private half never leaves
+ * the TPM.
+ */
+export const ACTION_DECRYPT = 'decrypt' as const;
 /** Action: local device readiness signals (no network): platform, TPM, capabilities, ABI. */
 export const ACTION_STATUS = 'status' as const;
 /** Action: richer local posture signals (host `CollectPosture`; no network). */
@@ -87,6 +95,7 @@ export type RootHeraldAction =
   | typeof ACTION_ATTEST
   | typeof ACTION_MINT_KEY
   | typeof ACTION_SIGN
+  | typeof ACTION_DECRYPT
   | typeof ACTION_STATUS
   | typeof ACTION_POSTURE
   | typeof ACTION_ENROLL_BEGIN
@@ -106,10 +115,12 @@ export interface RootHeraldRequestMessage {
   keyChallenge?: string;
   /** The installation's wrapped AK, for `enroll-complete`, `attest` and `mint-key`. */
   akBlob?: AkBlob;
-  /** The wrapped signing key, for `sign`. */
+  /** The wrapped key, for `sign` and `decrypt`. */
   keyBlob?: KeyBlob;
   /** base64url of the bytes to sign, for `sign`. The host hashes them. */
   data?: string;
+  /** The compact JWE to open, for `decrypt`. */
+  jwe?: DeviceEnvelope;
 }
 
 /** The `data` of a successful response, keyed by the action that produced it. */
@@ -128,6 +139,8 @@ export interface RootHeraldResponseData {
   alg?: string;
   /** `sign`: base64url signature over SHA-256 of `data`. */
   signature?: string;
+  /** `decrypt`: base64url of the opened bytes. */
+  plaintext?: string;
   /** `enroll-begin`: the opaque enroll request for the backend to relay. */
   enrollBody?: unknown;
   /** `enroll-complete`: the opaque activation blob for the backend to relay. */

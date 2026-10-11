@@ -14,8 +14,10 @@ import { pingExtension } from './detect.js';
 import {
   AbiMismatchError,
   AskUnsupportedError,
+  DecryptFailedError,
   ExtensionMissingError,
   HostError,
+  InvalidArgumentError,
   HostMissingError,
   KeyUnloadableError,
   NotEnrolledError,
@@ -44,9 +46,11 @@ export function parseHostError(error: string | undefined): HostErrorToken | null
 }
 
 /** Host codes this SDK names. Anything else surfaces as a plain {@link HostError}. */
+export const HOST_CODE_INVALID_ARG = '1';
 export const HOST_CODE_NOT_ENROLLED = '6';
 export const HOST_CODE_ASK_UNSUPPORTED = '13';
 export const HOST_CODE_KEY_UNLOADABLE = '14';
+export const HOST_CODE_DECRYPT_FAILED = '18';
 export const HOST_CODE_ABI_MISMATCH = 'abi_mismatch';
 export const HOST_CODE_UNKNOWN_ACTION = 'unknown_action';
 
@@ -122,6 +126,10 @@ export function classifyFailure(
   if (token) {
     const text = token.text || undefined;
     switch (token.code) {
+      case HOST_CODE_INVALID_ARG:
+        return new InvalidArgumentError(text);
+      case HOST_CODE_DECRYPT_FAILED:
+        return new DecryptFailedError(text);
       case HOST_CODE_NOT_ENROLLED:
         return new NotEnrolledError(text);
       case HOST_CODE_ASK_UNSUPPORTED:

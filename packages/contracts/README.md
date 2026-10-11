@@ -14,7 +14,7 @@ its own only when you want to share these types with your own code.
 npm install @rootherald/contracts
 ```
 
-Wire 8.0 from `0.1.0-alpha.20`. A 7.0-shaped enroll body is refused by the
+Wire 8.0 from `0.1.0-alpha.20`; wire 8.1 (decrypt keys) from `0.1.0-alpha.21`. A 7.0-shaped enroll body is refused by the
 server with `400 wire_version_unsupported`.
 
 ## What's in here
@@ -34,7 +34,10 @@ server with `400 wire_version_unsupported`.
   `SecureEnclaveKeyCertification` or `AppAttestKeyCertification`),
   `CertifyKeyRequest`, and the `CertifiedKey` the server returns (`EcJwk` or
   `RsaJwk`, `alg`, `format`, `hardwareBound`, `deviceId`). `AkBlob` and
-  `KeyBlob` are the opaque handles the device keeps.
+  `KeyBlob` are the opaque handles the device keeps. `DeviceEnvelope` is the
+  JWE compact string a server SDK's `encryptToDevice` makes for a `jwe`
+  decrypt key and the device's `Decrypt` opens; an `apple-ecies` key (macOS)
+  takes Apple's ECIES instead, which the server SDKs do not produce.
 - **Client ABI enroll blobs** (client-neutral): `EnrollRequestBlob` (a union
   of `TpmEnrollRequestBlob`, `SecureEnclaveEnrollRequestBlob` and
   `AppAttestEnrollRequestBlob`, discriminated by `platform`; 8.0 TPM bodies

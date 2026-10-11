@@ -2,6 +2,23 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.21
+
+Wire 8.1: decrypt keys.
+
+### Added
+
+- `encryptToDevice(key, plaintext)`: encrypt to a `decrypt` key so that only
+  the device holding it can read the result. Takes the `certifyKey` result
+  and bytes or a UTF-8 string; returns one JWE compact
+  serialization (`ECDH-ES` + `A256GCM` for an EC P-256 key, `RSA-OAEP-256` +
+  `A256GCM` for an RSA key) with a fresh ephemeral key or content key and IV
+  per call. `node:crypto` only, no RootHerald call.
+- `EncryptToDeviceError` (`.code`), with `SignKeyError` for a sign key and
+  `AppleEciesKeyError` for a macOS `apple-ecies` key, which this package
+  cannot encrypt to.
+- `DeviceEnvelope`, re-exported from `@rootherald/contracts`.
+
 ## 0.1.0-alpha.20
 
 Wire 8.0. Every installation of a client has its own attestation key, created

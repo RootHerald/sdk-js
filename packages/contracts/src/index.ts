@@ -32,6 +32,7 @@ export type {
   CertifyKeyRequest,
   ChallengeRequest,
   ChallengeResponse,
+  DeviceEnvelope,
   EcJwk,
   EvidenceBlob,
   KeyAlg,

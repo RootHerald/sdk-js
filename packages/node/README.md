@@ -23,6 +23,8 @@ backend*; it never travels through the client.
   attest (`POST /api/v1/attest/challenge`, `/verify`).
 - `verifyKeySignature(jwk, message, signature)`: check a signature from a
   certified key locally, with `node:crypto` only.
+- `encryptToDevice(key, plaintext)`: encrypt to a certified decrypt key
+  locally, with `node:crypto` only.
 
 **The challenge carries the ask.** What the device is asked to prove is fixed
 when you issue the challenge, bound to it server-side, and echoed to the client
@@ -169,6 +171,44 @@ UTF-8 string, and the signature as bytes or a base64url string. ES256: a
 RS256: PKCS#1 v1.5 over SHA-256, exactly the modulus length (256 bytes). It
 returns `false` and never throws on malformed input.
 
+## Guarantee only a device can decrypt
+
+Mint a key with purpose `decrypt`, keep the `certifyKey` result, and encrypt to it with
+`encryptToDevice`; the device opens the result with its `Decrypt`. The public
+half encrypts, so anyone holding the JWK can encrypt to the device; only the
+chip that minted the key can open it.
+
+```ts
+import { RootHeraldClient, encryptToDevice } from '@rootherald/node';
+
+const { nonce, keyChallenge } = await rh.issueKeyChallenge({
+  purpose: 'decrypt',
+  expectedDevices: [result.device.ueid!],
+});
+const key = await rh.certifyKey(nonce, certification);
+await db.saveDeviceKey(key.deviceId, key.keyId, key);
+
+// Later, without any RootHerald call: a session token only that device can use.
+const envelope = encryptToDevice(key, sessionToken);
+res.json({ envelope });
+```
+
+`encryptToDevice` takes the `certifyKey` result and the
+plaintext as bytes or a UTF-8 string, and returns one JWE compact
+serialization: `ECDH-ES` with `A256GCM` for an EC P-256 key, `RSA-OAEP-256`
+with `A256GCM` for an RSA key. Every call draws a fresh ephemeral key or
+content key and IV. It throws `SignKeyError` for a sign key and
+`EncryptToDeviceError` (`.code`) for any key it cannot encrypt to.
+
+Coverage: Windows and Linux decrypt keys carry `format: 'jwe'`, which is
+what `encryptToDevice` produces. A macOS decrypt key carries
+`format: 'apple-ecies'`, is opened with Apple's ECIES, and needs an
+Apple-side encryptor: `encryptToDevice` throws `AppleEciesKeyError` for it.
+iOS has no decrypt key.
+
+The key has no authorization value: any process on the device that holds the
+key blob can open everything ever encrypted to that key.
+
 ## Errors
 
 An un-enrolled or failing device is **not** an error: it comes back as a
@@ -257,9 +297,12 @@ arrive as ISO-8601 strings and are parsed to `Date` objects (`authTime`,
 
 ## What this package exports
 
-`RootHeraldClient`, `verifyKeySignature`, the error classes above, the
+`RootHeraldClient`, `verifyKeySignature`, `encryptToDevice` (with
+`EncryptToDeviceError`, `SignKeyError`, `AppleEciesKeyError`), the error
+classes above, the
 option/result types (`IssueChallengeOptions`, `AttestOptions`, `AttestResult`,
 `IssueKeyChallengeOptions`, `CertifiedKeyResult`), and the contract types from
 `@rootherald/contracts` (`Ask`, `ChallengeResponse`, `KeyChallengeResponse`,
-`KeyCertification`, `CertifiedKey`, `AkBlob`, `KeyBlob`, `EvidenceBlob`, the
+`KeyCertification`, `CertifiedKey`, `DeviceEnvelope`, `AkBlob`, `KeyBlob`,
+`EvidenceBlob`, the
 enroll blobs, the verdict types). There is no webhook receiver in this package.
