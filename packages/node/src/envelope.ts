@@ -19,16 +19,13 @@ import {
   createPublicKey,
   publicEncrypt,
   randomBytes,
+  type ECDH,
   type KeyObject,
 } from "node:crypto";
 import { RootHeraldError, type CertifiedKey, type CertifiedKeyJwk } from "@rootherald/contracts";
 
-/**
- * A key `encryptToDevice` accepts: the `certifyKey` result (checked for
- * purpose and format) or its bare `jwk` (the algorithm follows from the key
- * type, and the caller vouches that it is a decrypt key).
- */
-export type EncryptableKey = Pick<CertifiedKey, "purpose" | "alg" | "format" | "jwk"> | CertifiedKeyJwk;
+/** A key `encryptToDevice` accepts: the `certifyKey` result, checked for purpose, alg and format. */
+export type EncryptableKey = Pick<CertifiedKey, "purpose" | "alg" | "format" | "jwk">;
 
 /** The key cannot be encrypted to. `code` says why; the subclasses name the cases a caller routes on. */
 export class EncryptToDeviceError extends RootHeraldError {
@@ -68,17 +65,24 @@ const CEK_BYTES = 32;
 const IV_BYTES = 12;
 const COORDINATE_BYTES = 32;
 const MIN_RSA_MODULUS_BITS = 2048;
+const MIN_RSA_EXPONENT = 3n;
+const P256_ORDER = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
 const UNCOMPRESSED_POINT = 0x04;
 
 /** Bytes the envelope draws at random; the seam the known-answer tests replay. */
 export type RandomSource = (byteLength: number) => Uint8Array;
 
+interface Entropy {
+  ephemeral(): ECDH;
+  bytes(byteLength: number): Buffer;
+}
+
 /**
  * Encrypt `plaintext` so that only the device holding `key` can read it.
  *
- * - `key`: the `certifyKey` result for a `decrypt` key, or its `jwk`. A sign
- *   key, a macOS `apple-ecies` key, a curve other than P-256, or an RSA key
- *   under 2048 bits is refused with an {@link EncryptToDeviceError}.
+ * - `key`: the `certifyKey` result for a `decrypt` key. A sign key, a macOS
+ *   `apple-ecies` key, a curve other than P-256, or an RSA key under 2048
+ *   bits or with an exponent below 3 is refused with an {@link EncryptToDeviceError}.
  * - `plaintext`: bytes, or a string as UTF-8 text.
  *
  * Returns the JWE compact serialization the device's `Decrypt` takes. A fresh
@@ -86,22 +90,53 @@ export type RandomSource = (byteLength: number) => Uint8Array;
  * so encrypting the same bytes twice gives two different envelopes.
  */
 export function encryptToDevice(key: EncryptableKey, plaintext: Uint8Array | string): string {
-  return encryptToDeviceWith(randomBytes, key, plaintext);
+  return encrypt(
+    {
+      ephemeral: () => {
+        const ecdh = createECDH("prime256v1");
+        ecdh.generateKeys();
+        return ecdh;
+      },
+      bytes: randomBytes,
+    },
+    key,
+    plaintext,
+  );
 }
 
-/** {@link encryptToDevice} over a chosen random source: EC draws the 32-byte ephemeral scalar then the 12-byte IV; RSA the 32-byte CEK then the 12-byte IV. */
+/**
+ * {@link encryptToDevice} over a chosen random source: EC draws 32-byte
+ * ephemeral scalars until one lies in [1, n-1], then the 12-byte IV; RSA the
+ * 32-byte CEK then the 12-byte IV.
+ */
 export function encryptToDeviceWith(
   random: RandomSource,
   key: EncryptableKey,
   plaintext: Uint8Array | string,
 ): string {
+  return encrypt(
+    {
+      ephemeral: () => {
+        let scalar = draw(random, COORDINATE_BYTES);
+        while (!isP256Scalar(scalar)) scalar = draw(random, COORDINATE_BYTES);
+        const ecdh = createECDH("prime256v1");
+        ecdh.setPrivateKey(scalar);
+        return ecdh;
+      },
+      bytes: (n) => draw(random, n),
+    },
+    key,
+    plaintext,
+  );
+}
+
+function encrypt(entropy: Entropy, key: EncryptableKey, plaintext: Uint8Array | string): string {
   const jwk = requireDecryptJwk(key);
   const data = toPlaintextBytes(plaintext);
 
   if (jwk.kty === "EC") {
     const recipient = requireP256Point(jwk);
-    const ephemeral = createECDH("prime256v1");
-    ephemeral.setPrivateKey(draw(random, COORDINATE_BYTES));
+    const ephemeral = entropy.ephemeral();
     const epk = ephemeral.getPublicKey(null, "uncompressed");
     const z = ephemeral.computeSecret(recipient);
     const cek = concatKdf(z, { algorithmId: ENC, apu: EMPTY, apv: EMPTY, keyBits: CEK_BYTES * 8 });
@@ -117,17 +152,17 @@ export function encryptToDeviceWith(
         },
       }),
     );
-    return seal(header, EMPTY, cek, draw(random, IV_BYTES), data);
+    return seal(header, EMPTY, cek, entropy.bytes(IV_BYTES), data);
   }
 
   const publicKey = requireRsaKey(jwk);
-  const cek = draw(random, CEK_BYTES);
+  const cek = entropy.bytes(CEK_BYTES);
   const encryptedKey = publicEncrypt(
     { key: publicKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
     cek,
   );
   const header = base64url(JSON.stringify({ alg: "RSA-OAEP-256", enc: ENC }));
-  return seal(header, encryptedKey, cek, draw(random, IV_BYTES), data);
+  return seal(header, encryptedKey, cek, entropy.bytes(IV_BYTES), data);
 }
 
 const EMPTY = Buffer.alloc(0);
@@ -183,43 +218,39 @@ function uint32be(n: number): Buffer {
 }
 
 /**
- * The JWK to encrypt to, after the refusals: a certify result must say
- * purpose `decrypt`, alg `ECDH-ES` / `RSA-OAEP-256` and format `jwe`; a
- * bare JWK must be EC or RSA. The `alg` and `format` are checked, not
- * trusted: a sign key's public half would encrypt just as well and the
- * device would never be able to open the result.
+ * The JWK to encrypt to, after the refusals: the certify result must say
+ * purpose `decrypt`, alg `ECDH-ES` / `RSA-OAEP-256` and format `jwe`. These
+ * are checked, not trusted: a sign key's public half would encrypt just as
+ * well and the device would never be able to open the result.
  */
 function requireDecryptJwk(key: EncryptableKey): CertifiedKeyJwk {
-  if (!key || typeof key !== "object") {
-    throw new EncryptToDeviceError("encryptToDevice: `key` must be a certified key or its JWK", "INVALID_KEY");
+  if (!key || typeof key !== "object" || !("jwk" in key)) {
+    throw new EncryptToDeviceError("encryptToDevice: `key` must be the certifyKey result", "INVALID_KEY");
   }
-  if ("jwk" in key) {
-    if (key.purpose === "sign" || key.alg === "ES256" || key.alg === "RS256") throw new SignKeyError();
-    if (key.purpose !== "decrypt") {
-      throw new EncryptToDeviceError(
-        `encryptToDevice: the key's purpose is ${JSON.stringify(key.purpose)}, not 'decrypt'`,
-        "NOT_DECRYPT_KEY",
-      );
-    }
-    if (key.format === "apple-ecies") throw new AppleEciesKeyError();
-    if (key.format !== "jwe") {
-      throw new EncryptToDeviceError(
-        `encryptToDevice: the key's envelope format is ${JSON.stringify(key.format)}, not 'jwe'`,
-        "UNSUPPORTED_FORMAT",
-      );
-    }
-    return requireJwkShape(key.jwk, key.alg);
+  if (key.purpose === "sign" || key.alg === "ES256" || key.alg === "RS256") throw new SignKeyError();
+  if (key.purpose !== "decrypt") {
+    throw new EncryptToDeviceError(
+      `encryptToDevice: the key's purpose is ${JSON.stringify(key.purpose)}, not 'decrypt'`,
+      "NOT_DECRYPT_KEY",
+    );
   }
-  return requireJwkShape(key, undefined);
+  if (key.format === "apple-ecies") throw new AppleEciesKeyError();
+  if (key.format !== "jwe") {
+    throw new EncryptToDeviceError(
+      `encryptToDevice: the key's envelope format is ${JSON.stringify(key.format)}, not 'jwe'`,
+      "UNSUPPORTED_FORMAT",
+    );
+  }
+  return requireJwkShape(key.jwk, key.alg);
 }
 
-function requireJwkShape(jwk: unknown, alg: CertifiedKey["alg"] | undefined): CertifiedKeyJwk {
+function requireJwkShape(jwk: unknown, alg: CertifiedKey["alg"]): CertifiedKeyJwk {
   if (!jwk || typeof jwk !== "object") {
     throw new EncryptToDeviceError("encryptToDevice: `jwk` is not an object", "INVALID_KEY");
   }
   const k = jwk as Record<string, unknown>;
   if (k.kty === "EC") {
-    if (alg !== undefined && alg !== "ECDH-ES") {
+    if (alg !== "ECDH-ES") {
       throw new EncryptToDeviceError(`encryptToDevice: alg ${alg} does not fit an EC key`, "INVALID_KEY");
     }
     if (k.crv !== "P-256") {
@@ -234,7 +265,7 @@ function requireJwkShape(jwk: unknown, alg: CertifiedKey["alg"] | undefined): Ce
     return { kty: "EC", crv: "P-256", x: k.x, y: k.y };
   }
   if (k.kty === "RSA") {
-    if (alg !== undefined && alg !== "RSA-OAEP-256") {
+    if (alg !== "RSA-OAEP-256") {
       throw new EncryptToDeviceError(`encryptToDevice: alg ${alg} does not fit an RSA key`, "INVALID_KEY");
     }
     if (typeof k.n !== "string" || typeof k.e !== "string") {
@@ -248,7 +279,7 @@ function requireJwkShape(jwk: unknown, alg: CertifiedKey["alg"] | undefined): Ce
   );
 }
 
-/** The recipient's P-256 point as 0x04 || x || y, each coordinate exactly 32 bytes. Off-curve points fail in `computeSecret`. */
+/** The recipient's P-256 point as 0x04 || x || y, each coordinate exactly 32 bytes and on the curve. */
 function requireP256Point(jwk: CertifiedKeyJwk & { kty: "EC" }): Buffer {
   const x = fromBase64url(jwk.x);
   const y = fromBase64url(jwk.y);
@@ -281,7 +312,19 @@ function requireRsaKey(jwk: CertifiedKeyJwk & { kty: "RSA" }): KeyObject {
       "INVALID_KEY",
     );
   }
+  const exponent = key.asymmetricKeyDetails?.publicExponent;
+  if (typeof exponent !== "bigint" || exponent < MIN_RSA_EXPONENT) {
+    throw new EncryptToDeviceError(
+      `encryptToDevice: RSA public exponent is ${String(exponent)}; at least ${MIN_RSA_EXPONENT} is required`,
+      "INVALID_KEY",
+    );
+  }
   return key;
+}
+
+function isP256Scalar(scalar: Buffer): boolean {
+  const value = BigInt(`0x${scalar.toString("hex")}`);
+  return value > 0n && value < P256_ORDER;
 }
 
 function draw(random: RandomSource, byteLength: number): Buffer {

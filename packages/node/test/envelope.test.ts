@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   constants,
   createDecipheriv,
@@ -150,9 +151,9 @@ describe("encryptToDevice (EC P-256, ECDH-ES + A256GCM)", () => {
     expect(openEc(pair, jwe).toString("utf8")).toBe(PLAINTEXT);
   });
 
-  it("accepts the bare JWK and bytes in", () => {
+  it("takes bytes in", () => {
     const bytes = new Uint8Array([0, 1, 2, 255, 254, 253]);
-    const jwe = encryptToDevice(pair.jwk, bytes);
+    const jwe = encryptToDevice(decryptKey(pair.jwk), bytes);
     expect(new Uint8Array(openEc(pair, jwe))).toEqual(bytes);
   });
 
@@ -162,14 +163,14 @@ describe("encryptToDevice (EC P-256, ECDH-ES + A256GCM)", () => {
   });
 
   it("encrypts an empty plaintext", () => {
-    const jwe = encryptToDevice(pair.jwk, new Uint8Array(0));
+    const jwe = encryptToDevice(decryptKey(pair.jwk), new Uint8Array(0));
     expect(parse(jwe).ciphertext).toHaveLength(0);
     expect(openEc(pair, jwe)).toHaveLength(0);
   });
 
   it("differs on every call: a fresh ephemeral key and a fresh IV", () => {
-    const a = parse(encryptToDevice(pair.jwk, PLAINTEXT));
-    const b = parse(encryptToDevice(pair.jwk, PLAINTEXT));
+    const a = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
+    const b = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
     expect(a.header).not.toBe(b.header);
     expect((a.headerJson.epk as { x: string }).x).not.toBe((b.headerJson.epk as { x: string }).x);
     expect(a.iv.equals(b.iv)).toBe(false);
@@ -177,7 +178,7 @@ describe("encryptToDevice (EC P-256, ECDH-ES + A256GCM)", () => {
   });
 
   it("writes exactly the whitelisted header, in order, with nothing else", () => {
-    const p = parse(encryptToDevice(pair.jwk, PLAINTEXT));
+    const p = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
     const epk = p.headerJson.epk as Record<string, string>;
     const expected = JSON.stringify({
       alg: "ECDH-ES",
@@ -193,7 +194,7 @@ describe("encryptToDevice (EC P-256, ECDH-ES + A256GCM)", () => {
   });
 
   it("uses a 12-byte IV, a 16-byte tag and an empty encrypted-key segment", () => {
-    const jwe = encryptToDevice(pair.jwk, PLAINTEXT);
+    const jwe = encryptToDevice(decryptKey(pair.jwk), PLAINTEXT);
     const p = parse(jwe);
     expect(p.iv).toHaveLength(12);
     expect(p.tag).toHaveLength(16);
@@ -201,7 +202,7 @@ describe("encryptToDevice (EC P-256, ECDH-ES + A256GCM)", () => {
   });
 
   it("binds the protected header as the AAD", () => {
-    const jwe = encryptToDevice(pair.jwk, PLAINTEXT);
+    const jwe = encryptToDevice(decryptKey(pair.jwk), PLAINTEXT);
     const p = parse(jwe);
     // Same JSON, different bytes: a reader that hashed the parsed header
     // instead of the base64url text would accept this.
@@ -220,15 +221,15 @@ describe("encryptToDevice (EC P-256, ECDH-ES + A256GCM)", () => {
 
   it("does not open under another device's key", () => {
     const other = makeEcPair();
-    const jwe = encryptToDevice(pair.jwk, PLAINTEXT);
+    const jwe = encryptToDevice(decryptKey(pair.jwk), PLAINTEXT);
     expect(() => openEc(other, jwe)).toThrow();
   });
 
   it("is reproducible through the random seam, and consumes scalar then IV", () => {
     const scalar = randomBytes(32);
     const iv = randomBytes(12);
-    const a = encryptToDeviceWith(scripted(scalar, iv), pair.jwk, PLAINTEXT);
-    const b = encryptToDeviceWith(scripted(scalar, iv), pair.jwk, PLAINTEXT);
+    const a = encryptToDeviceWith(scripted(scalar, iv), decryptKey(pair.jwk), PLAINTEXT);
+    const b = encryptToDeviceWith(scripted(scalar, iv), decryptKey(pair.jwk), PLAINTEXT);
     expect(a).toBe(b);
     const p = parse(a);
     expect(p.iv.equals(iv)).toBe(true);
@@ -238,6 +239,17 @@ describe("encryptToDevice (EC P-256, ECDH-ES + A256GCM)", () => {
     expect(Buffer.from(epk.x, "base64url").equals(ecdh.getPublicKey(null, "uncompressed").subarray(1, 33))).toBe(true);
     expect(openEc(pair, a).toString("utf8")).toBe(PLAINTEXT);
   });
+
+  it("redraws an ephemeral scalar of 0 or at least the group order", () => {
+    const zero = Buffer.alloc(32);
+    const order = Buffer.from("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", "hex");
+    const max = Buffer.alloc(32, 0xff);
+    const scalar = randomBytes(32);
+    const iv = randomBytes(12);
+    const redrawn = encryptToDeviceWith(scripted(zero, order, max, scalar, iv), decryptKey(pair.jwk), PLAINTEXT);
+    expect(redrawn).toBe(encryptToDeviceWith(scripted(scalar, iv), decryptKey(pair.jwk), PLAINTEXT));
+    expect(openEc(pair, redrawn).toString("utf8")).toBe(PLAINTEXT);
+  });
 });
 
 describe("encryptToDevice (RSA, RSA-OAEP-256 + A256GCM)", () => {
@@ -246,19 +258,18 @@ describe("encryptToDevice (RSA, RSA-OAEP-256 + A256GCM)", () => {
   it("produces a compact JWE the device side opens", () => {
     const jwe = encryptToDevice(decryptKey(pair.jwk), PLAINTEXT);
     expect(openRsa(pair, jwe).toString("utf8")).toBe(PLAINTEXT);
-    expect(openRsa(pair, encryptToDevice(pair.jwk, PLAINTEXT)).toString("utf8")).toBe(PLAINTEXT);
   });
 
   it("differs on every call", () => {
-    const a = parse(encryptToDevice(pair.jwk, PLAINTEXT));
-    const b = parse(encryptToDevice(pair.jwk, PLAINTEXT));
+    const a = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
+    const b = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
     expect(a.encryptedKey.equals(b.encryptedKey)).toBe(false);
     expect(a.iv.equals(b.iv)).toBe(false);
     expect(a.ciphertext.equals(b.ciphertext)).toBe(false);
   });
 
   it("writes exactly { alg, enc } and no epk", () => {
-    const p = parse(encryptToDevice(pair.jwk, PLAINTEXT));
+    const p = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
     expect(Buffer.from(p.header, "base64url").toString("utf8")).toBe('{"alg":"RSA-OAEP-256","enc":"A256GCM"}');
     expect(p.encryptedKey).toHaveLength(256);
     expect(p.iv).toHaveLength(12);
@@ -266,7 +277,7 @@ describe("encryptToDevice (RSA, RSA-OAEP-256 + A256GCM)", () => {
   });
 
   it("binds the protected header as the AAD", () => {
-    const p = parse(encryptToDevice(pair.jwk, PLAINTEXT));
+    const p = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
     const cek = privateDecrypt(
       { key: pair.privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
       p.encryptedKey,
@@ -275,7 +286,7 @@ describe("encryptToDevice (RSA, RSA-OAEP-256 + A256GCM)", () => {
   });
 
   it("wraps with OAEP-SHA-256, not OAEP-SHA-1", () => {
-    const p = parse(encryptToDevice(pair.jwk, PLAINTEXT));
+    const p = parse(encryptToDevice(decryptKey(pair.jwk), PLAINTEXT));
     expect(() =>
       privateDecrypt(
         { key: pair.privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha1" },
@@ -287,7 +298,7 @@ describe("encryptToDevice (RSA, RSA-OAEP-256 + A256GCM)", () => {
   it("draws the CEK then the IV from the random seam", () => {
     const cek = randomBytes(32);
     const iv = randomBytes(12);
-    const p = parse(encryptToDeviceWith(scripted(cek, iv), pair.jwk, PLAINTEXT));
+    const p = parse(encryptToDeviceWith(scripted(cek, iv), decryptKey(pair.jwk), PLAINTEXT));
     expect(p.iv.equals(iv)).toBe(true);
     const unwrapped = privateDecrypt(
       { key: pair.privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
@@ -344,38 +355,43 @@ describe("encryptToDevice refusals", () => {
     const { publicKey } = generateKeyPairSync("ec", { namedCurve: "secp384r1" });
     const pub = publicKey.export({ format: "jwk" }) as { x: string; y: string };
     const jwk = { kty: "EC", crv: "P-384", x: pub.x, y: pub.y } as unknown as CertifiedKeyJwk;
-    expect(() => encryptToDevice(jwk, "x")).toThrow(/P-256/);
     expect(() => encryptToDevice(decryptKey(jwk), "x")).toThrow(/P-256/);
   });
 
   it("refuses EC coordinates that are not 32 bytes", () => {
     const short = { ...ec.jwk, x: Buffer.from(ec.jwk.x, "base64url").subarray(1).toString("base64url") };
-    expect(() => encryptToDevice(short, "x")).toThrow(/32 bytes/);
+    expect(() => encryptToDevice(decryptKey(short), "x")).toThrow(/32 bytes/);
     const long = { ...ec.jwk, y: Buffer.concat([Buffer.alloc(1), Buffer.from(ec.jwk.y, "base64url")]).toString("base64url") };
-    expect(() => encryptToDevice(long, "x")).toThrow(/32 bytes/);
+    expect(() => encryptToDevice(decryptKey(long), "x")).toThrow(/32 bytes/);
     const padded = { ...ec.jwk, x: ec.jwk.x + "=" };
-    expect(() => encryptToDevice(padded, "x")).toThrow(/32 bytes/);
+    expect(() => encryptToDevice(decryptKey(padded), "x")).toThrow(/32 bytes/);
   });
 
   it("refuses a point that is not on P-256", () => {
     const y = Buffer.from(ec.jwk.y, "base64url");
     y[7] ^= 0x40;
-    expect(() => encryptToDevice({ ...ec.jwk, y: y.toString("base64url") }, "x")).toThrow(/on P-256/);
+    expect(() => encryptToDevice(decryptKey({ ...ec.jwk, y: y.toString("base64url") }), "x")).toThrow(/on P-256/);
   });
 
   it("refuses an RSA key under 2048 bits", () => {
     const small = makeRsaPair(1024);
-    expect(() => encryptToDevice(small.jwk, "x")).toThrow(/2048/);
+    expect(() => encryptToDevice(decryptKey(small.jwk), "x")).toThrow(/2048/);
   });
 
-  it("refuses a JWK of another family or no key at all", () => {
-    expect(() => encryptToDevice({ kty: "oct", k: "AAAA" } as unknown as CertifiedKeyJwk, "x")).toThrow(EncryptToDeviceError);
-    expect(() => encryptToDevice(undefined as unknown as CertifiedKeyJwk, "x")).toThrow(EncryptToDeviceError);
+  it("refuses an RSA public exponent below 3", () => {
+    expect(() => encryptToDevice(decryptKey({ ...rsa.jwk, e: "AQ" }), "x")).toThrow(/exponent/);
+  });
+
+  it("refuses a bare JWK, a JWK of another family, or no key at all", () => {
+    expect(() => encryptToDevice(ec.jwk as unknown as CertifiedKey, "x")).toThrow(/certifyKey result/);
+    expect(() => encryptToDevice(rsa.jwk as unknown as CertifiedKey, "x")).toThrow(/certifyKey result/);
+    expect(() => encryptToDevice(decryptKey({ kty: "oct", k: "AAAA" } as unknown as CertifiedKeyJwk), "x")).toThrow(EncryptToDeviceError);
+    expect(() => encryptToDevice(undefined as unknown as CertifiedKey, "x")).toThrow(EncryptToDeviceError);
     expect(() => encryptToDevice({ ...decryptKey(ec.jwk), jwk: null as unknown as CertifiedKeyJwk }, "x")).toThrow(EncryptToDeviceError);
   });
 
   it("refuses a plaintext that is neither bytes nor a string", () => {
-    expect(() => encryptToDevice(ec.jwk, 42 as unknown as string)).toThrow(TypeError);
+    expect(() => encryptToDevice(decryptKey(ec.jwk), 42 as unknown as string)).toThrow(TypeError);
   });
 
   it("refuses the key before touching the random source", () => {
@@ -428,7 +444,7 @@ describe("Concat KDF (RFC 7518 Appendix C)", () => {
       jwk: { kty: "EC", crv: "P-256", x: BOB.x, y: BOB.y },
       d: Buffer.from((bobPrivate.export({ format: "jwk" }) as { d: string }).d, "base64url"),
     };
-    const jwe = encryptToDeviceWith(scripted(Buffer.from(ALICE_D, "base64url"), Buffer.alloc(12, 7)), bob.jwk, "hi");
+    const jwe = encryptToDeviceWith(scripted(Buffer.from(ALICE_D, "base64url"), Buffer.alloc(12, 7)), decryptKey(bob.jwk), "hi");
     const epk = parse(jwe).headerJson.epk as { x: string; y: string };
     expect(epk).toEqual({
       kty: "EC",
@@ -437,5 +453,51 @@ describe("Concat KDF (RFC 7518 Appendix C)", () => {
       y: "SLW_xSffzlPWrHEVI30DHM_4egVwt3NQqeUD7nMFpps",
     });
     expect(openEc(bob, jwe).toString("utf8")).toBe("hi");
+  });
+});
+
+describe("platform envelope vectors", () => {
+  interface Vector {
+    alg: string;
+    enc: string;
+    plaintext: string;
+    recipient: Record<string, string>;
+    ephemeral?: Record<string, string>;
+    cek: string;
+    iv: string;
+    jwe: string;
+  }
+  const load = (name: string): Vector =>
+    JSON.parse(readFileSync(new URL(`./fixtures/envelope/${name}.json`, import.meta.url), "utf8")) as Vector;
+  const b64 = (text: string) => Buffer.from(text, "base64url");
+
+  it("replays ECDH-ES + A256GCM byte for byte", () => {
+    const v = load("ecdh-es-a256gcm");
+    const { x, y } = v.recipient as { x: string; y: string };
+    const jwe = encryptToDeviceWith(
+      scripted(b64(v.ephemeral!.d!), b64(v.iv)),
+      decryptKey({ kty: "EC", crv: "P-256", x, y }),
+      b64(v.plaintext),
+    );
+    expect(jwe).toBe(v.jwe);
+  });
+
+  it("replays RSA-OAEP-256 + A256GCM: every segment but the OAEP-randomised key matches, and that unwraps to the CEK", () => {
+    const v = load("rsa-oaep-256-a256gcm");
+    const { n, e } = v.recipient as { n: string; e: string };
+    const jwe = encryptToDeviceWith(
+      scripted(b64(v.cek), b64(v.iv)),
+      decryptKey({ kty: "RSA", n, e }),
+      b64(v.plaintext),
+    );
+    const got = jwe.split(".");
+    const want = v.jwe.split(".");
+    expect([got[0], got[2], got[3], got[4]]).toEqual([want[0], want[2], want[3], want[4]]);
+    const recipient = createPrivateKey({ key: { kty: "RSA", ...v.recipient }, format: "jwk" });
+    const unwrapped = privateDecrypt(
+      { key: recipient, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
+      b64(got[1]!),
+    );
+    expect(unwrapped.equals(b64(v.cek))).toBe(true);
   });
 });

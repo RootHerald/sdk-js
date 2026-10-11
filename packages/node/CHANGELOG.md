@@ -10,7 +10,7 @@ Wire 8.1: decrypt keys.
 
 - `encryptToDevice(key, plaintext)`: encrypt to a `decrypt` key so that only
   the device holding it can read the result. Takes the `certifyKey` result
-  or its `jwk` and bytes or a UTF-8 string; returns one JWE compact
+  and bytes or a UTF-8 string; returns one JWE compact
   serialization (`ECDH-ES` + `A256GCM` for an EC P-256 key, `RSA-OAEP-256` +
   `A256GCM` for an RSA key) with a fresh ephemeral key or content key and IV
   per call. `node:crypto` only, no RootHerald call.

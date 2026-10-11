@@ -173,7 +173,7 @@ returns `false` and never throws on malformed input.
 
 ## Guarantee only a device can decrypt
 
-Mint a key with purpose `decrypt`, keep its JWK, and encrypt to it with
+Mint a key with purpose `decrypt`, keep the `certifyKey` result, and encrypt to it with
 `encryptToDevice`; the device opens the result with its `Decrypt`. The public
 half encrypts, so anyone holding the JWK can encrypt to the device; only the
 chip that minted the key can open it.
@@ -193,7 +193,7 @@ const envelope = encryptToDevice(key, sessionToken);
 res.json({ envelope });
 ```
 
-`encryptToDevice` takes the `certifyKey` result (or its `jwk`) and the
+`encryptToDevice` takes the `certifyKey` result and the
 plaintext as bytes or a UTF-8 string, and returns one JWE compact
 serialization: `ECDH-ES` with `A256GCM` for an EC P-256 key, `RSA-OAEP-256`
 with `A256GCM` for an RSA key. Every call draws a fresh ephemeral key or
