@@ -519,6 +519,16 @@ describe("verify", () => {
       expect(out.expected).toEqual({ key: "k-1", devices: ["device-uuid-1234", "other"] });
     });
 
+    it("compares aliases case-insensitively: the server echoes lowercase whatever spelling was asked", async () => {
+      const verdict = { ...sampleVerdict(), expected: { devices: ["device-uuid-1234", "other"] } };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
+      const out = await rh.verify({ blob: 1 }, {
+        nonce: NONCE,
+        expectedDevices: ["OTHER", " DEVICE-UUID-1234 "],
+      });
+      expect(out.expected).toEqual({ devices: ["device-uuid-1234", "other"] });
+    });
+
     it("refuses a verdict with no `expected` block when expectedKey was asked for", async () => {
       const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: sampleVerdict() }) });
       const err = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedKey: "k-1" }).catch((e: unknown) => e);

@@ -751,17 +751,23 @@ function requireExpectedEnforced(
   };
   if (expectedKey !== undefined && echoed?.key !== expectedKey) refuse("expectedKey");
   if (expectedDevices !== undefined) {
+    // Aliases are GUIDs: the server accepts any spelling and echoes lowercase.
+    const asked = expectedDevices.map(normalizeAlias);
     const devices = echoed?.devices;
-    if (!Array.isArray(devices) || !sameSet(devices, expectedDevices)) refuse("expectedDevices");
+    if (!Array.isArray(devices) || !sameSet(devices, asked)) refuse("expectedDevices");
     const ueid = result.device.ueid;
-    if (result.device.verdict !== "fail" && typeof ueid === "string" && !expectedDevices.includes(ueid)) {
+    if (result.device.verdict !== "fail" && typeof ueid === "string" && !asked.includes(normalizeAlias(ueid))) {
       refuse("expectedDevices");
     }
   }
 }
 
+function normalizeAlias(alias: string): string {
+  return alias.trim().toLowerCase();
+}
+
 function sameSet(a: readonly unknown[], b: readonly string[]): boolean {
-  const seen = new Set(a.filter((v): v is string => typeof v === "string"));
+  const seen = new Set(a.filter((v): v is string => typeof v === "string").map(normalizeAlias));
   return seen.size === new Set(b).size && b.every((v) => seen.has(v));
 }
 
