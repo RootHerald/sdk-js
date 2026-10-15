@@ -17,17 +17,16 @@ interface Schema {
 interface OpenApiDocument {
   paths: Record<string, Record<string, unknown>>;
   schemas?: Record<string, Schema>;
-  components?: { schemas?: Record<string, Schema> };
 }
 
-// The snapshot keeps its schemas at the root; a live document keeps them under
-// components. Both write refs as "#/components/schemas/<Name>".
+// The snapshot keeps its schemas at the root but writes refs as
+// "#/components/schemas/<Name>".
 function resolveRef(doc: OpenApiDocument, schema: Schema): Schema {
   if (schema.$ref === undefined) {
     return schema;
   }
   const name = schema.$ref.split("/").pop() as string;
-  const resolved = doc.schemas?.[name] ?? doc.components?.schemas?.[name];
+  const resolved = doc.schemas?.[name];
   if (resolved === undefined) {
     throw new Error(`unresolved $ref ${schema.$ref}`);
   }
@@ -83,25 +82,5 @@ describe("verdict reason contract", () => {
     const reason = readReasonSchema(doc);
     expect(Object.keys(reason.properties ?? {}).sort()).toEqual(["code", "text"]);
     expect(readVerdictSchema(doc).required ?? []).not.toContain("reason");
-  });
-});
-
-describe("resolveRef", () => {
-  const ref: Schema = { $ref: "#/components/schemas/VerdictReasonDto" };
-  const target: Schema = { type: "object", properties: { code: { type: "string" } } };
-
-  it("finds a schema at the root, as the snapshot keeps it", () => {
-    const doc: OpenApiDocument = { paths: {}, schemas: { VerdictReasonDto: target } };
-    expect(resolveRef(doc, ref)).toBe(target);
-  });
-
-  it("finds a schema under components, as a live document keeps it", () => {
-    const doc: OpenApiDocument = { paths: {}, components: { schemas: { VerdictReasonDto: target } } };
-    expect(resolveRef(doc, ref)).toBe(target);
-  });
-
-  it("throws on a ref neither place holds", () => {
-    const doc: OpenApiDocument = { paths: {}, schemas: {}, components: { schemas: {} } };
-    expect(() => resolveRef(doc, ref)).toThrow(/unresolved/);
   });
 });
