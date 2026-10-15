@@ -2,6 +2,17 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.22
+
+### Added
+
+- `reason` on the verify verdict: on a `warn` or `fail`, the rule that
+  decided, as `{ code, text }`. Absent on a pass.
+- `VerdictReason` and `VerdictReasonCode`, re-exported from
+  `@rootherald/contracts`, which also exports the code list as
+  `VERDICT_REASON_CODES`. A newer server may send a code this version does
+  not list.
+
 ## 0.1.0-alpha.21
 
 Wire 8.1: decrypt keys.
