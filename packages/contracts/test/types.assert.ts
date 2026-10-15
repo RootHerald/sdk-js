@@ -36,6 +36,7 @@ import type {
   VerifyAttestationResponse,
 } from "../src/background-check.js";
 import type { AttestationVerdict } from "../src/sdk-api.js";
+import type { VerdictReason, VerdictReasonCode } from "../src/index.js";
 
 // ── EnrollRequestBlob == POST /api/v1/attest/enroll body, per platform ─────
 const enrollBody = {
@@ -254,6 +255,23 @@ const verifyRespUnenrolled = {
   enrollmentRequired: true,
 } satisfies VerifyAttestationResponse;
 
+// A warn or fail carries the rule that decided; a pass carries none.
+const verifyRespWithReason = {
+  verdict: {
+    ...failVerdict,
+    reason: { code: "expected_device_mismatch", text: "This is not one of the expected devices." },
+  },
+} satisfies VerifyAttestationResponse;
+
+// @ts-expect-error a code the platform does not publish is not a VerdictReasonCode
+const unlistedCode: VerdictReasonCode = "not_a_code";
+
+// A newer server may send a code this version does not list.
+const reasonFromNewerServer = {
+  code: "some_future_code",
+  text: "A rule this SDK version does not know.",
+} satisfies VerdictReason;
+
 // The verify response carries no key: keys come from /keys/certify.
 const verifyRespWithKey = {
   verdict: passVerdict,
@@ -388,6 +406,9 @@ export const __contractAssertions = [
   verifyResp,
   verifyRespUnenrolled,
   verifyRespWithKey,
+  verifyRespWithReason,
+  unlistedCode,
+  reasonFromNewerServer,
   keyChallengeReq,
   keyChallengeResp,
   tpmCertification,

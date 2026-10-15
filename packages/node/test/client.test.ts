@@ -506,6 +506,32 @@ describe("verify", () => {
     expect("key" in out).toBe(false);
   });
 
+  it("returns a fail verdict's reason exactly as the server sent it", async () => {
+    const reason = { code: "not_enrolled", text: "This device is not enrolled." };
+    const verdict = sampleVerdict();
+    verdict.device.verdict = "fail";
+    verdict.device.earStatus = "contraindicated";
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: { ...verdict, reason } }) });
+    const out = await rh.verify({ blob: 1 }, { nonce: NONCE });
+    expect(out.reason).toEqual(reason);
+  });
+
+  it("returns a warn verdict's reason exactly as the server sent it", async () => {
+    const reason = { code: "unusual_boot_setup", text: "Few devices like this one boot this way." };
+    const verdict = sampleVerdict();
+    verdict.device.verdict = "warn";
+    verdict.device.earStatus = "warning";
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: { ...verdict, reason } }) });
+    const out = await rh.verify({ blob: 1 }, { nonce: NONCE });
+    expect(out.reason).toEqual(reason);
+  });
+
+  it("returns a pass verdict with no reason key when the server sends none", async () => {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: sampleVerdict() }) });
+    const out = await rh.verify({ blob: 1 }, { nonce: NONCE });
+    expect("reason" in out).toBe(false);
+  });
+
   // ── expectedKey / expectedDevices must be echoed back ────────────────────
   describe("expected binding", () => {
     it("accepts a verdict that echoes the expectedKey and expectedDevices it was asked for", async () => {
@@ -567,6 +593,32 @@ describe("verify", () => {
       const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict }) });
       const out = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedDevices: ["other"] });
       expect(out.device.verdict).toBe("fail");
+    });
+
+    it("keeps the reason on a failing verdict for another device", async () => {
+      const reason = { code: "expected_device_mismatch", text: "This is not one of the expected devices." };
+      const verdict = sampleVerdict();
+      verdict.device.verdict = "fail";
+      verdict.device.earStatus = "contraindicated";
+      const wire = { ...verdict, expected: { devices: ["other"] }, reason };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: wire }) });
+      const out = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedDevices: ["other"] });
+      expect(out.reason).toEqual(reason);
+    });
+
+    it("refuses a warning verdict for another device, even when its reason names the mismatch", async () => {
+      const verdict = sampleVerdict();
+      verdict.device.verdict = "warn";
+      verdict.device.earStatus = "warning";
+      const wire = {
+        ...verdict,
+        expected: { devices: ["other"] },
+        reason: { code: "expected_device_mismatch", text: "This is not one of the expected devices." },
+      };
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(200, { verdict: wire }) });
+      const err = await rh.verify({ blob: 1 }, { nonce: NONCE, expectedDevices: ["other"] }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RootHeraldApiError);
+      expect((err as RootHeraldApiError).code).toBe("EXPECTED_NOT_ENFORCED");
     });
 
     it("does not compare when the caller passed no expectation", async () => {
