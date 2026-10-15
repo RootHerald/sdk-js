@@ -106,9 +106,9 @@ satisfied.
 **Name the device that must answer.** `expectedDevices` takes aliases you
 enrolled, `expectedKey` a `keyId` you certified; any other device answers a
 failing verdict whose `reason.code` is `expected_device_mismatch`, and an
-unknown value is `422 expected_unknown`. Pass the same values to `verify`: the verdict echoes
-what the server enforced under `expected`, and `verify` refuses a verdict that
-does not echo it (`EXPECTED_NOT_ENFORCED`).
+unknown value is `422 expected_unknown`. Pass the same values to `verify`:
+the verdict echoes what the server enforced under `expected`, and `verify`
+refuses a verdict that does not echo it (`EXPECTED_NOT_ENFORCED`).
 
 ```ts
 const { nonce, challenge } = await rh.issueChallenge({
