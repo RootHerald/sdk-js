@@ -89,8 +89,14 @@ const result = await rh.verify(evidence, { nonce });
 
 if (result.device.verdict === 'pass') {
   // result.device.ueid is the alias: bind the session to it.
+} else {
+  log.info(result.reason?.code, result.reason?.text);
 }
 ```
+
+A `warn` or `fail` carries `reason`: the rule that decided, as a `code` from
+`VERDICT_REASON_CODES` and a `text` to show. A pass has none. A newer server
+may send a code this version does not list.
 
 Omitting `ask` asks for `['identity', 'posture']`. A posture ask runs under
 the key's posture policy and checks the boot configuration; use it for
@@ -99,10 +105,10 @@ satisfied.
 
 **Name the device that must answer.** `expectedDevices` takes aliases you
 enrolled, `expectedKey` a `keyId` you certified; any other device answers a
-failing verdict with reason `expected_device_mismatch`, and an unknown value is
-`422 expected_unknown`. Pass the same values to `verify`: the verdict echoes
-what the server enforced under `expected`, and `verify` refuses a verdict that
-does not echo it (`EXPECTED_NOT_ENFORCED`).
+failing verdict whose `reason.code` is `expected_device_mismatch`, and an
+unknown value is `422 expected_unknown`. Pass the same values to `verify`:
+the verdict echoes what the server enforced under `expected`, and `verify`
+refuses a verdict that does not echo it (`EXPECTED_NOT_ENFORCED`).
 
 ```ts
 const { nonce, challenge } = await rh.issueChallenge({

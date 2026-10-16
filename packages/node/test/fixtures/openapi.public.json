@@ -1,0 +1,916 @@
+{
+  "paths": {
+    "/api/v1/attest/activate": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivationRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        },
+        "tags": [
+          "Attestation"
+        ]
+      }
+    },
+    "/api/v1/attest/challenge": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/AttestationChallengeRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttestationChallengeRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttestationChallengeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        },
+        "tags": [
+          "Attestation"
+        ]
+      }
+    },
+    "/api/v1/attest/enroll": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollmentRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollmentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        },
+        "tags": [
+          "Attestation"
+        ]
+      }
+    },
+    "/api/v1/attest/verify": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyAttestationRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyAttestationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyAttestationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyAttestationResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyAttestationResponse"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyAttestationResponse"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Attestation"
+        ]
+      }
+    },
+    "/api/v1/keys/certify": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyCertifyRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyCertifyRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyCertifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        },
+        "tags": [
+          "Keys"
+        ]
+      }
+    },
+    "/api/v1/keys/challenge": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyChallengeRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyChallengeRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyChallengeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {}
+        },
+        "tags": [
+          "Keys"
+        ]
+      }
+    }
+  },
+  "schemas": {
+    "ActivationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "decryptedSecret": {
+          "nullable": true,
+          "type": "string"
+        },
+        "enrollmentId": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "signature": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "enrollmentId"
+      ],
+      "type": "object"
+    },
+    "AndroidAttestationData": {
+      "additionalProperties": false,
+      "properties": {
+        "certificateChain": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "certificateChain"
+      ],
+      "type": "object"
+    },
+    "AttestationChallengeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "ask": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "expectedDevices": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "expectedKey": {
+          "nullable": true,
+          "type": "string"
+        },
+        "policy": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AttestationKeyMaterial": {
+      "additionalProperties": false,
+      "properties": {
+        "parentPublicArea": {
+          "nullable": true,
+          "type": "string"
+        },
+        "publicArea": {
+          "nullable": true,
+          "type": "string"
+        },
+        "qualifiedName": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AttestationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "androidAttestation": {
+          "$ref": "#/components/schemas/AndroidAttestationData"
+        },
+        "cloudAttestation": {
+          "$ref": "#/components/schemas/CloudAttestationEvidence"
+        },
+        "ekCertPem": {
+          "nullable": true,
+          "type": "string"
+        },
+        "ekCertificateChain": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "iosAttestation": {
+          "$ref": "#/components/schemas/IosAttestationData"
+        },
+        "keyAttestation": {
+          "$ref": "#/components/schemas/KeyAttestationData"
+        },
+        "logs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "object"
+        },
+        "pcrValues": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "nullable": true,
+          "type": "object"
+        },
+        "quote": {
+          "$ref": "#/components/schemas/QuoteData"
+        }
+      },
+      "type": "object"
+    },
+    "AttestationVerdictDto": {
+      "additionalProperties": false,
+      "properties": {
+        "acr": {
+          "nullable": true,
+          "type": "string"
+        },
+        "amr": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "authTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "device": {
+          "$ref": "#/components/schemas/DeviceVerdictDto"
+        },
+        "expected": {
+          "$ref": "#/components/schemas/ExpectedBindingDto"
+        },
+        "expiresAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/components/schemas/VerdictReasonDto"
+        },
+        "requestedAcrValues": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "userId": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "acr",
+        "device"
+      ],
+      "type": "object"
+    },
+    "CloudAttestationEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "azureAttestedDocument": {
+          "nullable": true,
+          "type": "string"
+        },
+        "ec2InstanceIdentityDocument": {
+          "nullable": true,
+          "type": "string"
+        },
+        "ec2InstanceIdentitySignature": {
+          "nullable": true,
+          "type": "string"
+        },
+        "gcpInstanceIdentityToken": {
+          "nullable": true,
+          "type": "string"
+        },
+        "getInstanceTpmEkPubResult": {
+          "nullable": true,
+          "type": "string"
+        },
+        "nitroAttestationDocument": {
+          "nullable": true,
+          "type": "string"
+        },
+        "provider": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "type": "object"
+    },
+    "DeviceVerdictDto": {
+      "additionalProperties": false,
+      "properties": {
+        "accountBindingBand": {
+          "nullable": true,
+          "type": "string"
+        },
+        "accountBindingCount": {
+          "format": "int32",
+          "nullable": true,
+          "type": "integer"
+        },
+        "attestationCount": {
+          "format": "int64",
+          "nullable": true,
+          "type": "integer"
+        },
+        "attestationType": {
+          "nullable": true,
+          "type": "string"
+        },
+        "attestedAt": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "bootBaselineAt": {
+          "format": "date-time",
+          "nullable": true,
+          "type": "string"
+        },
+        "bootChangeAccepted": {
+          "nullable": true,
+          "type": "boolean"
+        },
+        "bootChanged": {
+          "nullable": true,
+          "type": "boolean"
+        },
+        "bootChangedStages": {
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "chipAnchorId": {
+          "nullable": true,
+          "type": "string"
+        },
+        "cohortKey": {
+          "nullable": true,
+          "type": "string"
+        },
+        "cohortPrevalence": {
+          "format": "double",
+          "nullable": true,
+          "type": "number"
+        },
+        "cohortPrevalencePerPcr": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "nullable": true,
+          "type": "object"
+        },
+        "cohortSampleSize": {
+          "format": "int64",
+          "nullable": true,
+          "type": "integer"
+        },
+        "cohortScope": {
+          "nullable": true,
+          "type": "string"
+        },
+        "disclosureClass": {
+          "$ref": "#/components/schemas/DisclosureClass"
+        },
+        "earStatus": {
+          "nullable": true,
+          "type": "string"
+        },
+        "ekChainTrusted": {
+          "type": "boolean"
+        },
+        "eventLogVerified": {
+          "type": "boolean"
+        },
+        "hardwareGenuine": {
+          "nullable": true,
+          "type": "boolean"
+        },
+        "hardwareModel": {
+          "nullable": true,
+          "type": "string"
+        },
+        "identitiesOnAnchor": {
+          "format": "int32",
+          "nullable": true,
+          "type": "integer"
+        },
+        "identityAgeBucket": {
+          "nullable": true,
+          "type": "string"
+        },
+        "identityAnchor": {
+          "nullable": true,
+          "type": "string"
+        },
+        "identityFirstSeen": {
+          "format": "date-time",
+          "nullable": true,
+          "type": "string"
+        },
+        "novelProfile": {
+          "nullable": true,
+          "type": "boolean"
+        },
+        "platform": {
+          "nullable": true,
+          "type": "string"
+        },
+        "platformRotated": {
+          "nullable": true,
+          "type": "boolean"
+        },
+        "platformRotationsInWindow": {
+          "format": "int32",
+          "nullable": true,
+          "type": "integer"
+        },
+        "possiblyRotated": {
+          "nullable": true,
+          "type": "boolean"
+        },
+        "postureEvaluated": {
+          "type": "boolean"
+        },
+        "postureSkippedReason": {
+          "nullable": true,
+          "type": "string"
+        },
+        "quoteVerified": {
+          "type": "boolean"
+        },
+        "returningDevice": {
+          "nullable": true,
+          "type": "boolean"
+        },
+        "secureBootVerified": {
+          "type": "boolean"
+        },
+        "sybilResistance": {
+          "nullable": true,
+          "type": "string"
+        },
+        "sybilRisk": {
+          "nullable": true,
+          "type": "string"
+        },
+        "tpmKind": {
+          "nullable": true,
+          "type": "string"
+        },
+        "trustworthinessVector": {
+          "additionalProperties": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "nullable": true,
+          "type": "object"
+        },
+        "ueid": {
+          "nullable": true,
+          "type": "string"
+        },
+        "verdict": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "attestationType",
+        "earStatus",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "DisclosureClass": {
+      "enum": [
+        "verdict",
+        "pseudonymous",
+        "derived",
+        "full"
+      ],
+      "type": "string"
+    },
+    "EnrollmentRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "akPublicArea": {
+          "nullable": true,
+          "type": "string"
+        },
+        "attestationKey": {
+          "$ref": "#/components/schemas/AttestationKeyMaterial"
+        },
+        "ekCertPem": {
+          "nullable": true,
+          "type": "string"
+        },
+        "ekCertificateChain": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "ekPublicKey": {
+          "nullable": true,
+          "type": "string"
+        },
+        "iosAttestationObject": {
+          "nullable": true,
+          "type": "string"
+        },
+        "iosKeyId": {
+          "nullable": true,
+          "type": "string"
+        },
+        "nonce": {
+          "nullable": true,
+          "type": "string"
+        },
+        "platform": {
+          "nullable": true,
+          "type": "string"
+        },
+        "tpmSelfReport": {
+          "$ref": "#/components/schemas/TpmSelfReport"
+        }
+      },
+      "required": [
+        "platform"
+      ],
+      "type": "object"
+    },
+    "ExpectedBindingDto": {
+      "additionalProperties": false,
+      "properties": {
+        "devices": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "key": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "IosAttestationData": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion": {
+          "nullable": true,
+          "type": "string"
+        },
+        "keyId": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "assertion",
+        "keyId"
+      ],
+      "type": "object"
+    },
+    "KeyAttestationData": {
+      "additionalProperties": false,
+      "properties": {
+        "publicKey": {
+          "nullable": true,
+          "type": "string"
+        },
+        "signedNonce": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "publicKey",
+        "signedNonce"
+      ],
+      "type": "object"
+    },
+    "KeyCertificationBody": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion": {
+          "nullable": true,
+          "type": "string"
+        },
+        "attest": {
+          "nullable": true,
+          "type": "string"
+        },
+        "devicePublicKey": {
+          "nullable": true,
+          "type": "string"
+        },
+        "deviceSignature": {
+          "nullable": true,
+          "type": "string"
+        },
+        "keyId": {
+          "nullable": true,
+          "type": "string"
+        },
+        "platform": {
+          "nullable": true,
+          "type": "string"
+        },
+        "publicArea": {
+          "nullable": true,
+          "type": "string"
+        },
+        "publicKey": {
+          "nullable": true,
+          "type": "string"
+        },
+        "signature": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "KeyCertifyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "certification": {
+          "$ref": "#/components/schemas/KeyCertificationBody"
+        },
+        "nonce": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "certification",
+        "nonce"
+      ],
+      "type": "object"
+    },
+    "KeyChallengeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedDevices": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "purpose": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "QuoteData": {
+      "additionalProperties": false,
+      "properties": {
+        "quoted": {
+          "nullable": true,
+          "type": "string"
+        },
+        "signature": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "quoted",
+        "signature"
+      ],
+      "type": "object"
+    },
+    "TpmSelfReport": {
+      "additionalProperties": false,
+      "properties": {
+        "manufacturer": {
+          "nullable": true,
+          "type": "string"
+        },
+        "vendorString": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "VerdictReasonDto": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "not_enrolled",
+            "evidence_not_verified",
+            "expected_device_mismatch",
+            "chip_kind_not_accepted",
+            "cloud_cross_check_required",
+            "mac_unattested",
+            "chip_reset",
+            "identities_per_chip",
+            "os_switch",
+            "os_switches_per_window",
+            "boot_log_missing",
+            "secure_boot_off",
+            "secure_boot_not_microsoft",
+            "revoked_boot_component",
+            "secure_boot_ca_2023_missing",
+            "boot_stage_not_measured",
+            "boot_stage_mismatch",
+            "boot_changed",
+            "unusual_boot_setup",
+            "boot_setup_too_few_seen",
+            "boot_setup_not_checked"
+          ],
+          "nullable": true,
+          "type": "string"
+        },
+        "text": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "text"
+      ],
+      "type": "object"
+    },
+    "VerifyAttestationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "$ref": "#/components/schemas/AttestationRequest"
+        },
+        "nonce": {
+          "nullable": true,
+          "type": "string"
+        },
+        "policy": {
+          "nullable": true,
+          "type": "string"
+        },
+        "requestedDisclosureClass": {
+          "nullable": true,
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence",
+        "nonce"
+      ],
+      "type": "object"
+    },
+    "VerifyAttestationResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "assuranceClaimsMet": {
+          "items": {
+            "type": "string"
+          },
+          "nullable": true,
+          "type": "array"
+        },
+        "enrollmentRequired": {
+          "type": "boolean"
+        },
+        "verdict": {
+          "$ref": "#/components/schemas/AttestationVerdictDto"
+        }
+      },
+      "required": [
+        "verdict"
+      ],
+      "type": "object"
+    }
+  }
+}

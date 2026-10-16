@@ -51,15 +51,15 @@ export interface ChallengeRequest {
    */
   ask?: Ask[];
   /**
-   * The `keyId` of a key this tenant certified. The verdict fails with reason
-   * `expected_device_mismatch` unless the quote came from the installation
-   * that holds that key. Unknown => `422 expected_unknown`.
+   * The `keyId` of a key this tenant certified. The verdict fails with
+   * `reason.code` `expected_device_mismatch` unless the quote came from the
+   * installation that holds that key. Unknown => `422 expected_unknown`.
    */
   expectedKey?: string;
   /**
    * Aliases (`verdict.device.ueid`) this tenant enrolled. The verdict fails
-   * with reason `expected_device_mismatch` unless the quote came from one of
-   * them. Unknown => `422 expected_unknown`.
+   * with `reason.code` `expected_device_mismatch` unless the quote came from
+   * one of them. Unknown => `422 expected_unknown`.
    */
   expectedDevices?: string[];
 }

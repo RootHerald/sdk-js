@@ -140,13 +140,13 @@ export interface IssueChallengeOptions {
   ask?: Ask[];
   /**
    * The `keyId` of a key you certified. Only the installation holding that
-   * key can pass; any other answers a failing verdict with reason
+   * key can pass; any other answers a failing verdict whose `reason.code` is
    * `expected_device_mismatch`. An unknown id is `422 expected_unknown`.
    */
   expectedKey?: string;
   /**
    * Aliases (`verdict.device.ueid`) you enrolled. Only one of them can pass;
-   * any other device answers a failing verdict with reason
+   * any other device answers a failing verdict whose `reason.code` is
    * `expected_device_mismatch`. An unknown alias is `422 expected_unknown`.
    */
   expectedDevices?: string[];
@@ -310,7 +310,8 @@ export class RootHeraldClient {
    * through the client, which holds no key and gets no verdict.
    *
    * An un-enrolled / failing device is NOT an error — it returns a normal
-   * verdict with a `fail` (or `warn`) result. Only protocol/auth/quota problems
+   * verdict with a `fail` (or `warn`) result, and `reason` carries the rule
+   * that decided as a `code` and a `text`. Only protocol/auth/quota problems
    * raise a typed {@link RootHeraldApiError}.
    *
    * When the challenge named `expectedKey` or `expectedDevices`, pass the

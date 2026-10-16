@@ -106,6 +106,8 @@ export type {
   TpmKeyCertification,
   TrustworthinessVector,
   Verdict,
+  VerdictReason,
+  VerdictReasonCode,
   VerifyAttestationRequest,
   VerifyAttestationResponse,
 } from "@rootherald/contracts";

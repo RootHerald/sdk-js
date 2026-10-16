@@ -12,6 +12,7 @@ import type {
   Verdict,
 } from "./eat.js";
 import type { RequestedDisclosureClass } from "./background-check.js";
+import type { VerdictReason } from "./verdict-reason.js";
 
 /** Camel-cased AR4SI trustworthiness vector. Each dimension: 0 = unknown, 1 = warning, 2 = affirming. */
 export interface TrustworthinessVector {
@@ -144,4 +145,6 @@ export interface AttestationVerdict {
   device: DeviceVerdict;
   /** The binding the challenge named, echoed after enforcement. */
   expected?: ExpectedBinding;
+  /** The rule that decided, on `warn` and `fail`; absent on `pass`. */
+  reason?: VerdictReason;
 }

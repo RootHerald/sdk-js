@@ -1,10 +1,10 @@
 /**
  * @rootherald/contracts — shared types for RootHerald SDK packages.
  *
- * Types only; no runtime code. Use this package directly if you need to
- * share types between your own code and a RootHerald SDK; otherwise
- * import what you need from @rootherald/node and the published SDK
- * pulls these types in transitively.
+ * The shared types, the error classes and the verdict reason codes. Use this
+ * package directly if you need to share types between your own code and a
+ * RootHerald SDK; otherwise import what you need from @rootherald/node and the
+ * published SDK pulls these in transitively.
  */
 
 export type {
@@ -22,6 +22,9 @@ export type {
   ExpectedBinding,
   TrustworthinessVector,
 } from "./sdk-api.js";
+
+export type { VerdictReason, VerdictReasonCode } from "./verdict-reason.js";
+export { VERDICT_REASON_CODES } from "./verdict-reason.js";
 
 export type {
   AkBlob,
