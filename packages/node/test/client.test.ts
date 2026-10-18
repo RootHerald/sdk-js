@@ -14,6 +14,7 @@ import {
 } from "@rootherald/contracts/server";
 import { RootHeraldError } from "@rootherald/contracts";
 import type { AttestationVerdict, EnrollRequestBlob, KeyCertification } from "@rootherald/contracts";
+import { readChainFailureEnum, readOpenApiFixture } from "./enroll-refusal-schema.js";
 
 const SK = "rh_sk_test_abc123";
 const BASE = "https://api.example.test";
@@ -813,6 +814,15 @@ describe("error mapping", () => {
     });
   }
 
+  it("leaves chainFailure and policyCanAdmit undefined on every mapped class", async () => {
+    for (const [status, errorCode] of cases) {
+      const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(status, { error: errorCode }) });
+      const err = (await rh.verify({ blob: 1 }, { nonce: NONCE }).catch((e: unknown) => e)) as RootHeraldApiError;
+      expect(err.chainFailure, `${status} ${errorCode} chainFailure`).toBeUndefined();
+      expect(err.policyCanAdmit, `${status} ${errorCode} policyCanAdmit`).toBeUndefined();
+    }
+  });
+
   it("maps invalid_ask to InvalidAskError, not the device-failure class", async () => {
     const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(400, { error: "invalid_ask" }) });
     const err = await rh.issueChallenge({ ask: ["key" as never] }).catch((e: unknown) => e);
@@ -1112,6 +1122,119 @@ describe("relayEnroll", () => {
     expect(err).toBeInstanceOf(RootHeraldError);
     expect((err as RootHeraldError).code).toBe("INVALID_ENROLL_BLOB");
     expect(calls(fetchMock).length).toBe(0);
+  });
+});
+
+describe("relayEnroll chainFailure", () => {
+  const enrollBlob: EnrollRequestBlob = {
+    ekPublicKey: "<base64 TPM2B_PUBLIC>",
+    attestationKey: {
+      publicArea: "<base64 ak pub area>",
+      parentPublicArea: "<base64 parent pub area>",
+      qualifiedName: "<base64 name>",
+    },
+    platform: "linux",
+  };
+
+  // The kinds come from the platform's published enum, never from the SDK's own list.
+  const publishedKinds = (readChainFailureEnum(readOpenApiFixture()) ?? []) as string[];
+
+  async function enrollRefusal(status: number, body: unknown): Promise<RootHeraldApiError> {
+    const rh = new RootHeraldClient({ secretKey: SK, baseUrl: BASE, fetch: mockFetch(status, body) });
+    return (await rh.relayEnroll(enrollBlob).catch((e: unknown) => e)) as RootHeraldApiError;
+  }
+
+  function expectNoChainFailure(err: RootHeraldApiError): void {
+    expect(err.chainFailure).toBeUndefined();
+    expect(err.policyCanAdmit).toBeUndefined();
+  }
+
+  it("reads at least one kind from the fixture", () => {
+    expect(publishedKinds.length).toBeGreaterThan(0);
+  });
+
+  for (const kind of publishedKinds) {
+    for (const policyCanAdmit of [true, false]) {
+      it(`carries ${kind} with policyCanAdmit ${policyCanAdmit} on an ek_chain_rejected refusal`, async () => {
+        const err = await enrollRefusal(400, { error: "ek_chain_rejected", message: "m", chainFailure: kind, policyCanAdmit });
+        expect(err).toBeInstanceOf(InvalidEvidenceError);
+        expect(err.errorCode).toBe("ek_chain_rejected");
+        expect(err.message).toBe("m");
+        expect(err.chainFailure).toBe(kind);
+        expect(err.policyCanAdmit).toBe(policyCanAdmit);
+      });
+    }
+  }
+
+  it.each([
+    ["key_mismatch", true],
+    ["not_trusted", false],
+    ["chain_fetch_failed", false],
+  ])("passes policyCanAdmit through for %s as the server sent it (%s)", async (kind, policyCanAdmit) => {
+    const err = await enrollRefusal(400, { error: "ek_chain_rejected", message: "m", chainFailure: kind, policyCanAdmit });
+    expect(err.chainFailure).toBe(kind);
+    expect(err.policyCanAdmit).toBe(policyCanAdmit);
+  });
+
+  it.each([
+    ["no chainFailure", { policyCanAdmit: true }],
+    ["an unknown kind", { chainFailure: "bogus", policyCanAdmit: true }],
+    ["an empty kind", { chainFailure: "", policyCanAdmit: true }],
+    ["the kind constructor", { chainFailure: "constructor", policyCanAdmit: true }],
+    ["the kind toString", { chainFailure: "toString", policyCanAdmit: true }],
+    ["no policyCanAdmit", { chainFailure: "not_trusted" }],
+    ["policyCanAdmit as a string", { chainFailure: "not_trusted", policyCanAdmit: "true" }],
+    ["policyCanAdmit as a number", { chainFailure: "not_trusted", policyCanAdmit: 1 }],
+    ["policyCanAdmit null", { chainFailure: "not_trusted", policyCanAdmit: null }],
+    ["chainFailure null", { chainFailure: null, policyCanAdmit: true }],
+    ["chainFailure as an object", { chainFailure: { kind: "not_trusted" }, policyCanAdmit: true }],
+    ["chainFailure as an array", { chainFailure: ["not_trusted"], policyCanAdmit: true }],
+  ])("leaves both undefined on an ek_chain_rejected refusal with %s", async (_name, fields) => {
+    const err = await enrollRefusal(400, { error: "ek_chain_rejected", message: "m", ...fields });
+    expect(err).toBeInstanceOf(InvalidEvidenceError);
+    expect(err.errorCode).toBe("ek_chain_rejected");
+    expect(err.message).toBe("m");
+    expectNoChainFailure(err);
+  });
+
+  it("never reads the kind from the message text", async () => {
+    const err = await enrollRefusal(400, { error: "ek_chain_rejected", message: "EK chain ends at an untrusted root" });
+    expect(err.message).toBe("EK chain ends at an untrusted root");
+    expectNoChainFailure(err);
+  });
+
+  it.each([
+    [400, "ak_template_rejected", InvalidEvidenceError],
+    [400, "invalid_ask", InvalidAskError],
+    [422, "admission_refused", AdmissionRefusedError],
+    [500, "internal", RootHeraldApiError],
+    [422, "ek_chain_rejected", RootHeraldApiError],
+    [500, "ek_chain_rejected", RootHeraldApiError],
+  ])("leaves both undefined on a %s %s refusal carrying the fields", async (status, errorCode, ErrClass) => {
+    const err = await enrollRefusal(status, { error: errorCode, message: "m", chainFailure: "not_trusted", policyCanAdmit: true });
+    expect(err).toBeInstanceOf(ErrClass);
+    expect(err.status).toBe(status);
+    expect(err.errorCode).toBe(errorCode);
+    expect(err.message).toBe("m");
+    expectNoChainFailure(err);
+  });
+
+  it("copies no other wire property onto the error", async () => {
+    const plain = await enrollRefusal(400, { error: "ek_chain_rejected", message: "m" });
+    const err = await enrollRefusal(400, {
+      error: "ek_chain_rejected",
+      message: "m",
+      chainFailure: "not_trusted",
+      policyCanAdmit: true,
+      kind: "not_trusted",
+      budget: { id: "bud_1", name: "Production" },
+      retryAfterSeconds: 5,
+      extra: "x",
+    });
+    const expectedKeys = new Set([...Object.keys(plain), "chainFailure", "policyCanAdmit"]);
+    expect(Object.keys(err).sort()).toEqual([...expectedKeys].sort());
+    expect(err.chainFailure).toBe("not_trusted");
+    expect(err.policyCanAdmit).toBe(true);
   });
 });
 
