@@ -226,7 +226,7 @@ raise a typed `RootHeraldApiError`:
 | 401    | `activation_refused` | `ActivationRefusedError` |
 | 401    | anything else        | `InvalidSecretKeyError`  |
 | 400    | `invalid_ask`, `invalid_purpose` | `InvalidAskError` |
-| 400    | anything else, including `wire_version_unsupported`, `invalid_enroll_shape`, `invalid_certification` | `InvalidEvidenceError` |
+| 400    | anything else, including `ek_chain_rejected`, `wire_version_unsupported`, `invalid_enroll_shape`, `invalid_certification` | `InvalidEvidenceError` |
 | 409    | `key_rotation_conflict` | `RootHeraldApiError`  |
 | 409    | anything else, including `challenge_expired_or_used` | `ChallengeError` |
 | 422    | `unknown_policy`     | `UnknownPolicyError`     |
@@ -246,6 +246,16 @@ failure. `RateLimitedError.retryAfterSeconds` is the server's `Retry-After`
 `QuotaExceededError.budget` names the budget that refused. Any other status,
 and a code no class covers, is a plain `RootHeraldApiError` with `.errorCode`
 preserved.
+
+On an `ek_chain_rejected` enrollment refusal, `chainFailure` names how the EK
+chain failed and `policyCanAdmit` comes with it; branch on these, never on
+`message`. `policyCanAdmit: true` means the key's policy refused this device
+and a policy could admit it. `chainFailure` says which policy builder question
+decides: for `revoked` it is "A chip its maker has revoked?"; for
+`not_trusted`, `chain_incomplete` and `cert_missing` it is "A chip whose
+certificate no maker vouches for?". Retry on `chain_fetch_failed`. Anything
+else is a refusal. Both are `undefined` on every other error, and on a kind
+this version does not list.
 
 A response whose `verdict.device.verdict` is not `pass`/`warn`/`fail`, whose
 timestamps do not parse, or whose certified key is malformed is refused with a

@@ -64,6 +64,8 @@ export {
   RateLimitedError,
   RootHeraldApiError,
   UnknownPolicyError,
+  type EkChainFailure,
+  type EkChainFailureKind,
   type RefusingBudget,
 } from "@rootherald/contracts/server";
 

@@ -2,6 +2,17 @@
 
 All notable changes to `@rootherald/node` are documented here.
 
+## 0.1.0-alpha.23
+
+### Added
+
+- `chainFailure` and `policyCanAdmit` on `RootHeraldApiError`: on a
+  `400 ek_chain_rejected` enrollment refusal, how the EK chain failed and
+  whether a policy could admit the device. Absent on every other error.
+- `EkChainFailure` and `EkChainFailureKind`, re-exported from
+  `@rootherald/contracts/server`, which also exports the kind list as
+  `EK_CHAIN_FAILURE_KINDS`.
+
 ## 0.1.0-alpha.22
 
 ### Added

@@ -29,6 +29,9 @@ export {
   type RefusingBudget,
 } from "./errors.js";
 
+export type { EkChainFailure, EkChainFailureKind } from "./ek-chain-failure.js";
+export { EK_CHAIN_FAILURE_KINDS } from "./ek-chain-failure.js";
+
 // ── Backend relay HTTP contract (the six server-SDK helpers) ───────────────
 //
 // The customer's backend relays the client's opaque blobs to RootHerald with

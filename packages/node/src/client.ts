@@ -46,6 +46,9 @@ import {
   RateLimitedError,
   RootHeraldApiError,
   UnknownPolicyError,
+  EK_CHAIN_FAILURE_KINDS,
+  type EkChainFailure,
+  type EkChainFailureKind,
   type RefusingBudget,
 } from "@rootherald/contracts/server";
 import type {
@@ -836,6 +839,7 @@ interface ErrorBody {
   message?: string;
   retryAfterSeconds?: number;
   budget?: RefusingBudget;
+  chainFailure?: EkChainFailure;
 }
 
 /** Parses an error response body, unknown-safely, and returns its `error`/`message`. */
@@ -859,7 +863,15 @@ async function readErrorBody(res: Response): Promise<ErrorBody> {
         isObject(rec.budget) && typeof rec.budget.id === "string" && typeof rec.budget.name === "string"
           ? { id: rec.budget.id, name: rec.budget.name }
           : undefined;
-      return { errorCode, message, retryAfterSeconds, budget };
+      // A kind this version does not list leaves both fields unset.
+      const chainFailure =
+        errorCode === "ek_chain_rejected" &&
+        typeof rec.chainFailure === "string" &&
+        (EK_CHAIN_FAILURE_KINDS as readonly string[]).includes(rec.chainFailure) &&
+        typeof rec.policyCanAdmit === "boolean"
+          ? { kind: rec.chainFailure as EkChainFailureKind, policyCanAdmit: rec.policyCanAdmit }
+          : undefined;
+      return { errorCode, message, retryAfterSeconds, budget, chainFailure };
     }
   } catch {
     // Non-JSON or empty body — fall through to status-based mapping.
@@ -882,7 +894,7 @@ function retryAfterHeader(res: Response): number | undefined {
  * with the code preserved.
  */
 async function toApiError(res: Response): Promise<RootHeraldError> {
-  const { errorCode, message, retryAfterSeconds, budget } = await readErrorBody(res);
+  const { errorCode, message, retryAfterSeconds, budget, chainFailure } = await readErrorBody(res);
   switch (res.status) {
     case 401:
       return errorCode === "activation_refused"
@@ -905,7 +917,7 @@ async function toApiError(res: Response): Promise<RootHeraldError> {
     case 400:
       return errorCode === "invalid_ask" || errorCode === "invalid_purpose"
         ? new InvalidAskError(message, errorCode)
-        : new InvalidEvidenceError(message, errorCode);
+        : new InvalidEvidenceError(message, errorCode, undefined, chainFailure);
     case 429:
       return errorCode === "budget_exhausted" || res.headers.has("X-RootHerald-Quota")
         ? new QuotaExceededError(message, errorCode, budget)
