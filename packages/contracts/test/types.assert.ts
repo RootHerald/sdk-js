@@ -37,6 +37,8 @@ import type {
 } from "../src/background-check.js";
 import type { AttestationVerdict } from "../src/sdk-api.js";
 import type { VerdictReason, VerdictReasonCode } from "../src/index.js";
+import type { EkChainFailure, EkChainFailureKind } from "../src/server.js";
+import { InvalidEvidenceError, RootHeraldApiError } from "../src/server.js";
 
 // ── EnrollRequestBlob == POST /api/v1/attest/enroll body, per platform ─────
 const enrollBody = {
@@ -365,6 +367,32 @@ const certifiedMacKey = {
   certifiedAt: "2026-06-30T00:01:00Z",
 } satisfies CertifiedKey;
 
+// ── EkChainFailure == chainFailure + policyCanAdmit on a 400 ek_chain_rejected
+const chainFailure = {
+  kind: "not_trusted",
+  policyCanAdmit: true,
+} satisfies EkChainFailure;
+
+const chainFailureUnknownKind = {
+  // @ts-expect-error a kind the platform does not publish is not an EkChainFailureKind
+  kind: "bogus",
+  policyCanAdmit: false,
+} satisfies EkChainFailure;
+
+const refusedKind: EkChainFailureKind | undefined = new InvalidEvidenceError().chainFailure;
+const refusedCanAdmit: boolean | undefined = new InvalidEvidenceError().policyCanAdmit;
+// @ts-expect-error chainFailure is absent on every refusal but ek_chain_rejected
+const refusedKindAlwaysSet: EkChainFailureKind = new InvalidEvidenceError().chainFailure;
+// @ts-expect-error policyCanAdmit is absent on every refusal but ek_chain_rejected
+const refusedCanAdmitAlwaysSet: boolean = new InvalidEvidenceError().policyCanAdmit;
+
+const evidenceErrorWithChainFailure = new InvalidEvidenceError("m", "ek_chain_rejected", undefined, chainFailure);
+const apiErrorWithChainFailure = new RootHeraldApiError("m", "API_ERROR", 400, "ek_chain_rejected", undefined, chainFailure);
+
+// The constructors taking a cause keep their positions.
+const evidenceErrorWithCause = new InvalidEvidenceError("m", "c", new Error("cause"));
+const apiErrorWithCause = new RootHeraldApiError("m", "API_ERROR", 500, "x", new Error("cause"));
+
 // Reference the bindings so `noUnusedLocals`-style checks never trip and the
 // assertions are not tree-shaken away by lint.
 export const __contractAssertions = [
@@ -420,4 +448,14 @@ export const __contractAssertions = [
   certifiedRsaKey,
   certifiedDecryptKey,
   certifiedMacKey,
+  chainFailure,
+  chainFailureUnknownKind,
+  refusedKind,
+  refusedCanAdmit,
+  refusedKindAlwaysSet,
+  refusedCanAdmitAlwaysSet,
+  evidenceErrorWithChainFailure,
+  apiErrorWithChainFailure,
+  evidenceErrorWithCause,
+  apiErrorWithCause,
 ] as const;

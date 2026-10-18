@@ -1,7 +1,14 @@
 // Compile-time checks on what @rootherald/node exports. Checked by
 // tsconfig.test.json; never run.
 
-import type { AttestResult, VerdictReason, VerdictReasonCode } from "../src/index.js";
+import type {
+  AttestResult,
+  EkChainFailure,
+  EkChainFailureKind,
+  RootHeraldApiError,
+  VerdictReason,
+  VerdictReasonCode,
+} from "../src/index.js";
 
 const mismatchReason = {
   code: "expected_device_mismatch",
@@ -14,4 +21,20 @@ const mismatchCode: VerdictReasonCode = mismatchReason.code;
 const resultReason: VerdictReason | undefined = ({} as AttestResult).reason;
 const typedReason: AttestResult["reason"] = undefined as VerdictReason | undefined;
 
-export const __exportAssertions = [mismatchReason, mismatchCode, resultReason, typedReason] as const;
+const revokedChain = {
+  kind: "revoked",
+  policyCanAdmit: true,
+} satisfies EkChainFailure;
+
+const refusalKind: EkChainFailureKind | undefined = ({} as RootHeraldApiError).chainFailure;
+const refusalCanAdmit: boolean | undefined = ({} as RootHeraldApiError).policyCanAdmit;
+
+export const __exportAssertions = [
+  mismatchReason,
+  mismatchCode,
+  resultReason,
+  typedReason,
+  revokedChain,
+  refusalKind,
+  refusalCanAdmit,
+] as const;

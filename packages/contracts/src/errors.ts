@@ -10,6 +10,8 @@
  * Consumers can discriminate via `instanceof` or by the `code` string.
  */
 
+import type { EkChainFailure, EkChainFailureKind } from "./ek-chain-failure.js";
+
 /** Base class for all RootHerald SDK errors. */
 export class RootHeraldError extends Error {
   public readonly code: string;
@@ -55,6 +57,13 @@ export class RootHeraldApiError extends RootHeraldError {
   public readonly status: number;
   /** The server's `error` discriminator, when present. */
   public readonly errorCode?: string;
+  /**
+   * How the EK chain failed. Present only on a 400 `ek_chain_rejected` whose
+   * kind this version knows, and then always with `policyCanAdmit`.
+   */
+  public readonly chainFailure?: EkChainFailureKind;
+  /** Whether some policy could admit the device; set with `chainFailure`. */
+  public readonly policyCanAdmit?: boolean;
 
   constructor(
     message: string,
@@ -62,11 +71,14 @@ export class RootHeraldApiError extends RootHeraldError {
     status: number,
     errorCode?: string,
     cause?: unknown,
+    chainFailure?: EkChainFailure,
   ) {
     super(message, code, cause);
     this.name = "RootHeraldApiError";
     this.status = status;
     this.errorCode = errorCode;
+    this.chainFailure = chainFailure?.kind;
+    this.policyCanAdmit = chainFailure?.policyCanAdmit;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -109,11 +121,18 @@ export class ChallengeError extends RootHeraldApiError {
  * 400 — the relayed blob was malformed or could not be appraised. This
  * includes `wire_version_unsupported` (a 7.0-shaped enroll body) and
  * `invalid_enroll_shape` (an AK whose qualified name does not follow from its
- * parent). A 400 carrying `invalid_ask` is {@link InvalidAskError} instead.
+ * parent), and `ek_chain_rejected`, which carries `chainFailure` and
+ * `policyCanAdmit`. A 400 carrying `invalid_ask` is {@link InvalidAskError}
+ * instead.
  */
 export class InvalidEvidenceError extends RootHeraldApiError {
-  constructor(message = "invalid evidence", errorCode?: string, cause?: unknown) {
-    super(message, "INVALID_EVIDENCE", 400, errorCode, cause);
+  constructor(
+    message = "invalid evidence",
+    errorCode?: string,
+    cause?: unknown,
+    chainFailure?: EkChainFailure,
+  ) {
+    super(message, "INVALID_EVIDENCE", 400, errorCode, cause, chainFailure);
     this.name = "InvalidEvidenceError";
     Object.setPrototypeOf(this, new.target.prototype);
   }

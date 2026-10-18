@@ -80,7 +80,44 @@
           }
         },
         "responses": {
-          "200": {}
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentResponse"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentRefusal"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentRefusal"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentRefusal"
+                }
+              }
+            }
+          }
         },
         "tags": [
           "Attestation"
@@ -610,6 +647,40 @@
       ],
       "type": "string"
     },
+    "EnrollmentRefusal": {
+      "additionalProperties": false,
+      "properties": {
+        "chainFailure": {
+          "enum": [
+            "other",
+            "key_mismatch",
+            "not_trusted",
+            "chain_incomplete",
+            "chain_fetch_failed",
+            "cert_missing",
+            "per_chip_ca_missing",
+            "revoked"
+          ],
+          "nullable": true,
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "nullable": true,
+          "type": "string"
+        },
+        "policyCanAdmit": {
+          "nullable": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
     "EnrollmentRequest": {
       "additionalProperties": false,
       "properties": {
@@ -658,6 +729,29 @@
       "required": [
         "platform"
       ],
+      "type": "object"
+    },
+    "EnrollmentResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "challengeNonce": {
+          "nullable": true,
+          "type": "string"
+        },
+        "credentialBlob": {
+          "nullable": true,
+          "type": "string"
+        },
+        "encryptedSecret": {
+          "nullable": true,
+          "type": "string"
+        },
+        "enrollmentId": {
+          "format": "uuid",
+          "nullable": true,
+          "type": "string"
+        }
+      },
       "type": "object"
     },
     "ExpectedBindingDto": {
