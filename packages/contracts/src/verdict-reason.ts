@@ -9,7 +9,6 @@ export const VERDICT_REASON_CODES = [
   "evidence_not_verified",
   "expected_device_mismatch",
   "chip_kind_not_accepted",
-  "cloud_cross_check_required",
   "mac_unattested",
   "chip_reset",
   "identities_per_chip",
