@@ -320,9 +320,6 @@
         "androidAttestation": {
           "$ref": "#/components/schemas/AndroidAttestationData"
         },
-        "cloudAttestation": {
-          "$ref": "#/components/schemas/CloudAttestationEvidence"
-        },
         "ekCertPem": {
           "nullable": true,
           "type": "string"
@@ -409,43 +406,6 @@
       "required": [
         "acr",
         "device"
-      ],
-      "type": "object"
-    },
-    "CloudAttestationEvidence": {
-      "additionalProperties": false,
-      "properties": {
-        "azureAttestedDocument": {
-          "nullable": true,
-          "type": "string"
-        },
-        "ec2InstanceIdentityDocument": {
-          "nullable": true,
-          "type": "string"
-        },
-        "ec2InstanceIdentitySignature": {
-          "nullable": true,
-          "type": "string"
-        },
-        "gcpInstanceIdentityToken": {
-          "nullable": true,
-          "type": "string"
-        },
-        "getInstanceTpmEkPubResult": {
-          "nullable": true,
-          "type": "string"
-        },
-        "nitroAttestationDocument": {
-          "nullable": true,
-          "type": "string"
-        },
-        "provider": {
-          "nullable": true,
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider"
       ],
       "type": "object"
     },
@@ -907,7 +867,19 @@
     "TpmSelfReport": {
       "additionalProperties": false,
       "properties": {
+        "cloudDocument": {
+          "nullable": true,
+          "type": "string"
+        },
+        "ekCertSource": {
+          "nullable": true,
+          "type": "string"
+        },
         "manufacturer": {
+          "nullable": true,
+          "type": "string"
+        },
+        "sdkVersion": {
           "nullable": true,
           "type": "string"
         },
@@ -927,7 +899,6 @@
             "evidence_not_verified",
             "expected_device_mismatch",
             "chip_kind_not_accepted",
-            "cloud_cross_check_required",
             "mac_unattested",
             "chip_reset",
             "identities_per_chip",
